@@ -1,0 +1,13 @@
+-r requirements.txt
+flake8==6.1.0
+factory_boy
+bandit
+coverage==4.5.1
+flake8==6.1.0
+configparser==7.0.0
+black==24.4.2
+pre-commit==3.7.0
+django-debug-toolbar
+django-extensions
+django-coverage-plugin
+django-coverage

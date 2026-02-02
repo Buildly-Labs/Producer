@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  postgres_logic_service:
+    container_name: postgres_logic_service_dev
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_DB: logic_service
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d logic_service"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  logic_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: logic_service_dev
+    image: logic_service:dev
+    volumes:
+      - .:/code
+    ports:
+      - "8002:8080"
+    depends_on:
+      postgres_logic_service:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: "logic_service.settings.docker"
+      RUNNING_IN_DOCKER: "True"
+      ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0,logicservice.kupfer.service.local"
+      CORS_ORIGIN_WHITELIST: "localhost,127.0.0.1"
+      DATABASE_ENGINE: "postgresql"
+      DATABASE_NAME: "logic_service"
+      DATABASE_USER: "root"
+      DATABASE_PASSWORD: "root"
+      DATABASE_HOST: "postgres_logic_service"
+      DATABASE_PORT: "5432"
+      DEBUG: "True"
+      STATIC_ROOT: "/static/"
+      SECRET_KEY: "dev-secret-key-change-in-production"
+    entrypoint: ["bash", "/code/scripts/docker-entrypoint-dev.sh"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
