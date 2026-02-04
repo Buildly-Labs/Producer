@@ -1,0 +1,205 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Control Room - {{ episode.title }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-start">
+        <div>
+            <div class="text-sm text-gray-500 mb-1">
+                <a href="{% url 'production_ledger:show_detail' episode.show.pk %}" class="hover:text-gray-700">{{ episode.show.name }}</a>
+                / <a href="{% url 'production_ledger:episode_detail' episode.pk %}" class="hover:text-gray-700">{{ episode.title }}</a>
+            </div>
+            <h1 class="text-2xl font-bold text-gray-900">🎬 Control Room</h1>
+            <p class="text-gray-500">Quick access to all episode workflows</p>
+        </div>
+        <div class="flex items-center space-x-4">
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium 
+                {% if episode.status == 'published' %}bg-green-100 text-green-800
+                {% elif episode.status == 'approved' %}bg-blue-100 text-blue-800
+                {% elif episode.status == 'draft' %}bg-gray-100 text-gray-800
+                {% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                {{ episode.get_status_display }}
+            </span>
+            {% if user_role in 'admin,host,producer' %}
+            <a href="{% url 'production_ledger:episode_status' episode.pk %}" 
+               class="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                Change Status
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Workflow Status Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Planning -->
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 
+            {% if episode.segments.count > 0 %}border-green-500{% else %}border-gray-300{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="font-medium text-gray-900">📋 Planning</h3>
+                {% if episode.segments.count > 0 %}
+                <span class="text-green-600">✓</span>
+                {% endif %}
+            </div>
+            <div class="text-sm text-gray-500 mb-3">
+                {{ episode.segments.count }} segments, {{ episode.episode_guests.count }} guests
+            </div>
+            <div class="space-y-1">
+                <a href="{% url 'production_ledger:episode_segments' episode.pk %}" class="block text-sm text-blue-600 hover:text-blue-800">Segments →</a>
+                <a href="{% url 'production_ledger:episode_guests' episode.pk %}" class="block text-sm text-blue-600 hover:text-blue-800">Guests →</a>
+            </div>
+        </div>
+
+        <!-- Media -->
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 
+            {% if episode.media_assets.count > 0 %}border-green-500{% else %}border-gray-300{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="font-medium text-gray-900">🎙️ Media</h3>
+                {% if episode.media_assets.count > 0 %}
+                <span class="text-green-600">✓</span>
+                {% endif %}
+            </div>
+            <div class="text-sm text-gray-500 mb-3">
+                {{ episode.media_assets.count }} assets uploaded
+            </div>
+            <a href="{% url 'production_ledger:episode_media' episode.pk %}" class="block text-sm text-blue-600 hover:text-blue-800">Manage Media →</a>
+        </div>
+
+        <!-- Transcript -->
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 
+            {% if episode.transcripts.count > 0 %}border-green-500{% else %}border-gray-300{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="font-medium text-gray-900">📝 Transcript</h3>
+                {% if episode.transcripts.count > 0 %}
+                <span class="text-green-600">✓</span>
+                {% endif %}
+            </div>
+            <div class="text-sm text-gray-500 mb-3">
+                {% if episode.transcripts.count > 0 %}
+                    v{{ episode.transcripts.first.version }} available
+                {% else %}
+                    Not uploaded
+                {% endif %}
+            </div>
+            <a href="{% url 'production_ledger:episode_transcript' episode.pk %}" class="block text-sm text-blue-600 hover:text-blue-800">Transcript →</a>
+        </div>
+
+        <!-- Clips -->
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 
+            {% if episode.clip_moments.count > 0 %}border-green-500{% else %}border-gray-300{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="font-medium text-gray-900">✂️ Clips</h3>
+                {% if episode.clip_moments.count > 0 %}
+                <span class="text-green-600">✓</span>
+                {% endif %}
+            </div>
+            <div class="text-sm text-gray-500 mb-3">
+                {{ episode.clip_moments.count }} clips marked
+            </div>
+            <a href="{% url 'production_ledger:episode_clips' episode.pk %}" class="block text-sm text-blue-600 hover:text-blue-800">Clips →</a>
+        </div>
+    </div>
+
+    <!-- AI & Content -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- AI Artifacts -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">🤖 AI Content</h3>
+            <div class="space-y-2">
+                {% with pending=episode.ai_artifacts.filter_pending approved=episode.ai_artifacts.filter_approved %}
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Pending Approval</span>
+                    <span class="font-medium {% if pending.count > 0 %}text-yellow-600{% else %}text-gray-400{% endif %}">{{ pending.count }}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Approved</span>
+                    <span class="font-medium text-green-600">{{ approved.count }}</span>
+                </div>
+                {% endwith %}
+                <div class="pt-3 border-t border-gray-200">
+                    <a href="{% url 'production_ledger:episode_ai_drafts' episode.pk %}" class="text-sm text-blue-600 hover:text-blue-800">
+                        Manage AI Drafts →
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Show Notes -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">📄 Show Notes</h3>
+            <div class="space-y-2">
+                {% if final_show_notes %}
+                <div class="flex items-center text-sm text-green-600">
+                    <span class="mr-2">✓</span>
+                    <span>Finalized on {{ final_show_notes.approved_at|date:"M d, Y" }}</span>
+                </div>
+                {% else %}
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Drafts</span>
+                    <span class="font-medium">{{ episode.show_note_drafts.count }}</span>
+                </div>
+                <div class="text-sm text-yellow-600">Not finalized</div>
+                {% endif %}
+                <div class="pt-3 border-t border-gray-200">
+                    <a href="{% url 'production_ledger:episode_show_notes' episode.pk %}" class="text-sm text-blue-600 hover:text-blue-800">
+                        Manage Show Notes →
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Checklist Summary -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium text-gray-900">✅ Checklist Progress</h3>
+            <a href="{% url 'production_ledger:episode_checklist' episode.pk %}" class="text-sm text-blue-600 hover:text-blue-800">View Full Checklist →</a>
+        </div>
+        <div class="space-y-3">
+            {% for item in checklist_items|slice:":5" %}
+            <div class="flex items-center">
+                <span class="w-5 h-5 mr-3 rounded flex items-center justify-center text-sm
+                    {% if item.is_done %}bg-green-100 text-green-600{% else %}bg-gray-100 text-gray-400{% endif %}">
+                    {% if item.is_done %}✓{% endif %}
+                </span>
+                <span class="{% if item.is_done %}text-gray-400 line-through{% else %}text-gray-900{% endif %}">
+                    {{ item.title }}
+                </span>
+                {% if item.is_required %}
+                <span class="ml-2 text-xs text-red-500">Required</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% if checklist_items|length > 5 %}
+            <div class="text-sm text-gray-500 pt-2 border-t border-gray-200">
+                + {{ checklist_items|length|add:"-5" }} more items
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Quick Export -->
+    <div class="bg-gray-50 rounded-lg p-6 border border-gray-200">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">📦 Quick Export</h3>
+        <div class="flex flex-wrap gap-3">
+            <a href="{% url 'production_ledger:export_episode_json' episode.pk %}" 
+               class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                JSON Package
+            </a>
+            <a href="{% url 'production_ledger:export_show_notes_markdown' episode.pk %}" 
+               class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                Show Notes (MD)
+            </a>
+            <a href="{% url 'production_ledger:export_clips_csv' episode.pk %}" 
+               class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                Clips CSV
+            </a>
+            <a href="{% url 'production_ledger:export_full_package' episode.pk %}" 
+               class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+                Download All (ZIP)
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

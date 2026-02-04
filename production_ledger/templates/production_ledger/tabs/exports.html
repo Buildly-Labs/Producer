@@ -1,0 +1,108 @@
+{% extends "production_ledger/episode_detail.html" %}
+
+{% block tab_content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h3 class="text-lg font-medium text-gray-900">Export Publishing Package</h3>
+    </div>
+
+    {% if can_export %}
+    <p class="text-sm text-gray-500">
+        Download episode data in various formats for publishing and distribution.
+    </p>
+
+    <!-- Export Options -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- JSON Package -->
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 text-2xl">📦</div>
+                <div class="ml-4">
+                    <h4 class="font-medium text-gray-900">Full JSON Package</h4>
+                    <p class="text-sm text-gray-500 mt-1">Complete episode data including metadata, segments, guests, clips, and show notes.</p>
+                    <a href="{% url 'production_ledger:export_episode_json' episode.pk %}" 
+                       class="mt-3 inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                        Download JSON
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Markdown Show Notes -->
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 text-2xl">📝</div>
+                <div class="ml-4">
+                    <h4 class="font-medium text-gray-900">Show Notes (Markdown)</h4>
+                    <p class="text-sm text-gray-500 mt-1">Final show notes formatted in Markdown, ready for your website or blog.</p>
+                    <a href="{% url 'production_ledger:export_show_notes_markdown' episode.pk %}" 
+                       class="mt-3 inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                        Download Markdown
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Clips CSV -->
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 text-2xl">✂️</div>
+                <div class="ml-4">
+                    <h4 class="font-medium text-gray-900">Clips CSV</h4>
+                    <p class="text-sm text-gray-500 mt-1">All clip moments with timestamps, titles, and metadata in spreadsheet format.</p>
+                    <a href="{% url 'production_ledger:export_clips_csv' episode.pk %}" 
+                       class="mt-3 inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                        Download CSV
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full Package -->
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 text-2xl">🗂️</div>
+                <div class="ml-4">
+                    <h4 class="font-medium text-gray-900">Complete Package (ZIP)</h4>
+                    <p class="text-sm text-gray-500 mt-1">All exports in one ZIP file: JSON, Markdown, CSV, and guest briefs.</p>
+                    <a href="{% url 'production_ledger:export_full_package' episode.pk %}" 
+                       class="mt-3 inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+                        Download ZIP
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Guest Briefs -->
+    {% if guests %}
+    <div class="border-t border-gray-200 pt-6">
+        <h4 class="font-medium text-gray-900 mb-4">Guest Briefs</h4>
+        <p class="text-sm text-gray-500 mb-4">Printable preparation documents for each guest.</p>
+        
+        <div class="space-y-2">
+            {% for eg in guests %}
+            <div class="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
+                <div>
+                    <span class="font-medium text-gray-900">{{ eg.guest.name }}</span>
+                    {% if eg.guest.org %}
+                    <span class="text-sm text-gray-500">— {{ eg.guest.org }}</span>
+                    {% endif %}
+                </div>
+                <a href="{% url 'production_ledger:export_guest_brief' episode.pk eg.guest.pk %}" 
+                   class="text-sm text-blue-600 hover:text-blue-800">
+                    Download Brief →
+                </a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="text-center py-8 text-gray-500">
+        <p>You don't have permission to export this episode.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

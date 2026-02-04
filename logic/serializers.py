@@ -1,15 +1,12 @@
+"""
+Logic app serializers.
+
+This app is reserved for core business logic serializers that don't fit
+into the production_ledger domain. Currently empty.
+
+See production_ledger/serializers.py for the main application serializers.
+"""
 from rest_framework import serializers
-from .models import Restaurant, Menu
 
-
-class RestaurantSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Restaurant
-        fields = '__all__'  # ('id', 'name')    
-
-
-class MenuSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Menu
-        fields = '__all__'
+# Serializers can be added here as needed
 

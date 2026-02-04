@@ -1,0 +1,73 @@
+{% extends "production_ledger/episode_detail.html" %}
+
+{% block tab_content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h3 class="text-lg font-medium text-gray-900">Episode Checklist</h3>
+        {% if is_complete %}
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+            ✓ All Required Items Complete
+        </span>
+        {% else %}
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+            Required Items Incomplete
+        </span>
+        {% endif %}
+    </div>
+
+    <p class="text-sm text-gray-500">
+        Complete all required items before the episode can be marked as "Approved" or "Published".
+    </p>
+
+    <!-- Checklist Items -->
+    <div class="bg-white border border-gray-200 rounded-lg divide-y divide-gray-200">
+        {% for item in checklist_items %}
+        <div class="px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center">
+                <form method="post" action="{% url 'production_ledger:checklist_toggle' item.pk %}" class="mr-3">
+                    {% csrf_token %}
+                    <button type="submit" class="w-6 h-6 rounded border-2 flex items-center justify-center
+                        {% if item.is_done %}bg-green-500 border-green-500 text-white{% else %}border-gray-300 hover:border-gray-400{% endif %}">
+                        {% if item.is_done %}✓{% endif %}
+                    </button>
+                </form>
+                <div>
+                    <span class="{% if item.is_done %}line-through text-gray-400{% else %}text-gray-900{% endif %}">
+                        {{ item.title }}
+                    </span>
+                    {% if item.is_required %}
+                    <span class="ml-2 text-xs text-red-500">Required</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="text-sm text-gray-500">
+                {% if item.is_done %}
+                    Done by {{ item.done_by.username }} on {{ item.done_at|date:"M d" }}
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Status Transition Info -->
+    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+        <h4 class="font-medium text-gray-900 mb-2">Status Transitions</h4>
+        <p class="text-sm text-gray-600">
+            The episode is currently <strong>{{ episode.get_status_display }}</strong>.
+            {% if not is_complete %}
+            Complete all required checklist items to transition to "Approved" or "Published".
+            {% else %}
+            All requirements are met. You can now transition the episode to "Approved".
+            {% endif %}
+        </p>
+        {% if is_complete and user_role in 'admin,host' %}
+        <div class="mt-4">
+            <a href="{% url 'production_ledger:episode_status' episode.pk %}" 
+               class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700">
+                Change Status →
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

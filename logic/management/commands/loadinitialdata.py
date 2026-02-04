@@ -16,14 +16,20 @@ class Command(BaseCommand):
             action='store_true',
             help='Skip loading fixture data',
         )
+        parser.add_argument(
+            '--skip-episode-types',
+            action='store_true',
+            help='Skip seeding default episode types',
+        )
 
     def handle(self, *args, **options):
         self.stdout.write(
             self.style.SUCCESS('Starting to load initial data...')
         )
         
-        # Add any initial data loading logic here
-        # For example, creating default groups, permissions, etc.
+        # Seed default episode types
+        if not options.get('skip_episode_types'):
+            self._seed_episode_types()
         
         if not options['skip_fixtures']:
             # Try to load fixture files if they exist
@@ -42,6 +48,22 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS('Successfully loaded initial data!')
         )
+    
+    def _seed_episode_types(self):
+        """Seed default episode types for production_ledger."""
+        try:
+            from production_ledger.models import EpisodeType
+            created = EpisodeType.seed_defaults()
+            if created:
+                self.stdout.write(
+                    self.style.SUCCESS(f'Created {len(created)} default episode types')
+                )
+            else:
+                self.stdout.write('Episode types already exist.')
+        except Exception as e:
+            self.stdout.write(
+                self.style.WARNING(f'Could not seed episode types: {e}')
+            )
 
     def _create_sample_data(self):
         """Create sample data if needed"""

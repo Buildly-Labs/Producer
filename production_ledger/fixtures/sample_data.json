@@ -1,0 +1,289 @@
+[
+  {
+    "model": "production_ledger.show",
+    "pk": "11111111-1111-1111-1111-111111111111",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "name": "Portland StartupGrind x Buildly",
+      "slug": "portland-startupgrind-buildly",
+      "description": "Weekly conversations with Portland startup founders, operators, and investors. Hosted in collaboration with StartupGrind Portland and the Buildly community.",
+      "default_target_minutes": 45,
+      "created_at": "2024-01-15T10:00:00Z",
+      "updated_at": "2024-01-15T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.guest",
+    "pk": "22222222-2222-2222-2222-222222222221",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "name": "Alex Chen",
+      "email": "alex@techstartup.io",
+      "org": "TechStartup.io",
+      "title": "Founder & CEO",
+      "bio": "Serial entrepreneur with 3 exits. Currently building TechStartup.io, a platform for connecting founders with developers. Angel investor in 20+ startups.",
+      "linkedin_url": "https://linkedin.com/in/alexchen",
+      "twitter_handle": "alexchen_tech",
+      "created_at": "2024-01-15T10:00:00Z",
+      "updated_at": "2024-01-15T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.guest",
+    "pk": "22222222-2222-2222-2222-222222222222",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "name": "Jordan Rivera",
+      "email": "jordan@devops.expert",
+      "org": "DevOps Expert Consulting",
+      "title": "Principal Consultant",
+      "bio": "15+ years in infrastructure and DevOps. Helps startups scale from 0 to millions of users. Regular speaker at KubeCon and DevOpsDays.",
+      "linkedin_url": "https://linkedin.com/in/jordanrivera",
+      "twitter_handle": "jordandevops",
+      "created_at": "2024-01-15T10:00:00Z",
+      "updated_at": "2024-01-15T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.episode",
+    "pk": "33333333-3333-3333-3333-333333333331",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "show": "11111111-1111-1111-1111-111111111111",
+      "title": "Vibe Coding: When AI Writes Your MVP",
+      "summary": "We explore the new wave of 'vibe coding' - using AI tools to rapidly prototype and ship MVPs. Alex Chen shares how his team shipped a complete product in a weekend using Claude, Cursor, and creative prompting techniques.",
+      "episode_type": "interview",
+      "recording_context": "remote",
+      "target_minutes": 45,
+      "status": "transcribed",
+      "scheduled_for": "2024-02-01T14:00:00Z",
+      "publish_date": null,
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-28T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.episode",
+    "pk": "33333333-3333-3333-3333-333333333332",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "show": "11111111-1111-1111-1111-111111111111",
+      "title": "Ops for Startups: From Zero to Production",
+      "summary": "Jordan Rivera breaks down the essential DevOps practices every startup needs. Learn how to set up CI/CD, monitoring, and infrastructure-as-code without a dedicated ops team.",
+      "episode_type": "interview",
+      "recording_context": "remote",
+      "target_minutes": 50,
+      "status": "draft",
+      "scheduled_for": "2024-02-15T14:00:00Z",
+      "publish_date": null,
+      "created_at": "2024-01-25T10:00:00Z",
+      "updated_at": "2024-01-25T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.episodeguest",
+    "pk": "44444444-4444-4444-4444-444444444441",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "guest": "22222222-2222-2222-2222-222222222221",
+      "role": "primary",
+      "key_topics": "AI coding tools, rapid prototyping, MVP development, prompt engineering",
+      "prep_notes": "Alex recently wrote a viral Twitter thread about shipping in a weekend. Ask about the specific prompts and workflows they used.",
+      "quote_approval_status": "pending",
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-20T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.episodeguest",
+    "pk": "44444444-4444-4444-4444-444444444442",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333332",
+      "guest": "22222222-2222-2222-2222-222222222222",
+      "role": "primary",
+      "key_topics": "CI/CD, Kubernetes, infrastructure as code, monitoring, startup scaling",
+      "prep_notes": "Jordan has a new course launching soon. Tie in practical examples from the course content.",
+      "quote_approval_status": "pending",
+      "created_at": "2024-01-25T10:00:00Z",
+      "updated_at": "2024-01-25T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.segment",
+    "pk": "55555555-5555-5555-5555-555555555551",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "order": 1,
+      "title": "Introduction & Context",
+      "purpose": "Set the stage for vibe coding discussion",
+      "timebox_minutes": 5,
+      "owner_role": "host",
+      "key_questions": "What is vibe coding?\nHow did this trend emerge?",
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-20T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.segment",
+    "pk": "55555555-5555-5555-5555-555555555552",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "order": 2,
+      "title": "The Weekend MVP Story",
+      "purpose": "Deep dive into Alex's experience shipping fast",
+      "timebox_minutes": 15,
+      "owner_role": "guest",
+      "key_questions": "Walk us through that weekend - what was the starting point?\nWhat tools did you use?\nWhat were the biggest surprises?",
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-20T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.segment",
+    "pk": "55555555-5555-5555-5555-555555555553",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "order": 3,
+      "title": "Practical Techniques",
+      "purpose": "Actionable advice for listeners",
+      "timebox_minutes": 15,
+      "owner_role": "guest",
+      "key_questions": "What prompting techniques work best?\nHow do you handle complex business logic?\nCode review with AI - how does that work?",
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-20T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.segment",
+    "pk": "55555555-5555-5555-5555-555555555554",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "order": 4,
+      "title": "Wrap-up & Resources",
+      "purpose": "Close with key takeaways and resources",
+      "timebox_minutes": 10,
+      "owner_role": "host",
+      "key_questions": "Top 3 tips for someone starting vibe coding?\nWhere can people follow your work?",
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-20T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.transcript",
+    "pk": "66666666-6666-6666-6666-666666666661",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "content": "HOST: Welcome to Portland StartupGrind x Buildly! I'm your host, and today we're diving into something that's been taking the dev community by storm - vibe coding. My guest today shipped an entire MVP in a single weekend using AI tools. Alex Chen, founder of TechStartup.io, welcome to the show!\n\nALEX: Thanks for having me! I'm excited to share what we learned.\n\nHOST: So let's start at the beginning. What exactly is 'vibe coding'?\n\nALEX: Great question. Vibe coding is this new approach where you're essentially pair programming with AI, but instead of writing code line by line, you're describing what you want at a higher level. You're coding based on the 'vibe' of what you want to create rather than the exact implementation details.\n\nHOST: That sounds almost too good to be true. How does that work in practice?\n\nALEX: So for our weekend project, we started with a Figma mockup and a clear product spec. Then we used Claude and Cursor together. I would describe a feature in natural language, like 'create a dashboard that shows user analytics with a graph of daily active users.' The AI would generate the code, and I'd iterate from there.\n\nHOST: And you shipped a complete product in a weekend?\n\nALEX: A working MVP, yes. Now, 'complete' is relative - we had auth, a core feature loop, and enough polish to share with early users. The AI handled probably 80% of the boilerplate and repetitive code. My job was architecture decisions, prompt refinement, and quality control.\n\nHOST: What were the biggest surprises?\n\nALEX: Two things stood out. First, how good AI is at understanding context. Once you establish the patterns in your codebase, it follows them remarkably well. Second, the debugging. AI is actually great at fixing its own mistakes when you describe the problem clearly.\n\nHOST: Let's get tactical. What prompting techniques work best?\n\nALEX: The key is being specific about constraints. Don't just say 'build a login form.' Say 'build a login form using React, Tailwind CSS, with email validation, that submits to our /api/auth endpoint and handles errors gracefully.' The more context, the better.\n\nHOST: What about complex business logic?\n\nALEX: That's where you still need human judgment. I'd describe the business rules in plain English, have AI generate a first pass, then carefully review and adjust. For critical paths, I always write tests first.\n\nHOST: As we wrap up, what are your top three tips for someone wanting to try vibe coding?\n\nALEX: One, start with a clear spec - AI works best when you know what you're building. Two, invest time in learning good prompting - it's a skill that compounds. Three, don't skip code review - AI can introduce subtle bugs or security issues.\n\nHOST: Where can people follow your work?\n\nALEX: Find me on Twitter @alexchen_tech, and TechStartup.io is where we're putting these ideas into practice.\n\nHOST: Alex, thanks for joining us!\n\nALEX: Thanks for having me!",
+      "format": "plaintext",
+      "source_type": "manual",
+      "version": 1,
+      "word_count": 520,
+      "created_at": "2024-01-28T10:00:00Z",
+      "updated_at": "2024-01-28T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.clipmoment",
+    "pk": "77777777-7777-7777-7777-777777777771",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "start_seconds": 180.0,
+      "end_seconds": 240.0,
+      "title": "What is Vibe Coding?",
+      "reason": "Great quotable definition - could be used for social clips",
+      "transcript_excerpt": "Vibe coding is this new approach where you're essentially pair programming with AI, but instead of writing code line by line, you're describing what you want at a higher level.",
+      "priority": "must",
+      "created_at": "2024-01-28T12:00:00Z",
+      "updated_at": "2024-01-28T12:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.clipmoment",
+    "pk": "77777777-7777-7777-7777-777777777772",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "start_seconds": 720.0,
+      "end_seconds": 780.0,
+      "title": "The 80% Rule",
+      "reason": "Key insight about AI handling boilerplate",
+      "transcript_excerpt": "The AI handled probably 80% of the boilerplate and repetitive code. My job was architecture decisions, prompt refinement, and quality control.",
+      "priority": "should",
+      "created_at": "2024-01-28T12:00:00Z",
+      "updated_at": "2024-01-28T12:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.checklistitem",
+    "pk": "88888888-8888-8888-8888-888888888881",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "title": "Upload raw audio",
+      "is_required": true,
+      "is_done": true,
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-27T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.checklistitem",
+    "pk": "88888888-8888-8888-8888-888888888882",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "title": "Add/verify transcript",
+      "is_required": true,
+      "is_done": true,
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-28T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.checklistitem",
+    "pk": "88888888-8888-8888-8888-888888888883",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "title": "Review and approve show notes",
+      "is_required": true,
+      "is_done": false,
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-20T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.checklistitem",
+    "pk": "88888888-8888-8888-8888-888888888884",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "title": "Get guest quote approval",
+      "is_required": true,
+      "is_done": false,
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-20T10:00:00Z"
+    }
+  },
+  {
+    "model": "production_ledger.checklistitem",
+    "pk": "88888888-8888-8888-8888-888888888885",
+    "fields": {
+      "organization_uuid": "00000000-0000-0000-0000-000000000001",
+      "episode": "33333333-3333-3333-3333-333333333331",
+      "title": "Mark highlight clips",
+      "is_required": false,
+      "is_done": true,
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": "2024-01-28T12:00:00Z"
+    }
+  }
+]

@@ -1,12 +1,10 @@
-from rest_framework import viewsets
-from .models import Restaurant, Menu
-from .serializers import RestaurantSerializer, MenuSerializer
+"""
+Logic app views.
 
-class RestaurantViewSet(viewsets.ModelViewSet):
-    queryset = Restaurant.objects.all()
-    serializer_class = RestaurantSerializer
+This app is reserved for core business logic views that don't fit
+into the production_ledger domain. Currently empty.
 
-class MenuViewSet(viewsets.ModelViewSet):
-    queryset = Menu.objects.all()
-    serializer_class = MenuSerializer
+See production_ledger/views.py for the main application views.
+"""
+# Views can be added here as needed
 

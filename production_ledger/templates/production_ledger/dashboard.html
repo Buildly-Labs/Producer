@@ -1,0 +1,251 @@
+{% extends "production_ledger/base.html" %}
+{% load static %}
+
+{% block title %}Dashboard - ProducerForge{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <!-- Page Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-[var(--text-primary)]">
+                {% if user.first_name %}Welcome back, {{ user.first_name }}{% else %}Welcome back{% endif %}
+            </h1>
+            <p class="text-[var(--text-secondary)] mt-1">Here's what's happening with your shows today.</p>
+        </div>
+        <a href="{% url 'production_ledger:episode_create' %}" class="btn btn-primary">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            New Episode
+        </a>
+    </div>
+    
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="stat-card">
+            <div class="stat-card-icon">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                </svg>
+            </div>
+            <div class="stat-card-content">
+                <p class="stat-card-label">Total Shows</p>
+                <p class="stat-card-value">{{ show_count|default:"0" }}</p>
+            </div>
+            <a href="{% url 'production_ledger:show_list' %}" class="stat-card-link">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-card-icon">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div class="stat-card-content">
+                <p class="stat-card-label">Total Episodes</p>
+                <p class="stat-card-value">{{ episode_count|default:"0" }}</p>
+            </div>
+            <a href="{% url 'production_ledger:episode_list' %}" class="stat-card-link">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-card-icon">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                </svg>
+            </div>
+            <div class="stat-card-content">
+                <p class="stat-card-label">Total Guests</p>
+                <p class="stat-card-value">{{ guest_count|default:"0" }}</p>
+            </div>
+            <a href="{% url 'production_ledger:guest_list' %}" class="stat-card-link">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-card-icon bg-[var(--status-success)]/10">
+                <svg class="text-[var(--status-success)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </div>
+            <div class="stat-card-content">
+                <p class="stat-card-label">Published</p>
+                <p class="stat-card-value">{{ published_count|default:"0" }}</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Content Grid -->
+    <div class="grid lg:grid-cols-3 gap-6">
+        <!-- Recent Episodes -->
+        <div class="lg:col-span-2">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Recent Episodes</h2>
+                    <a href="{% url 'production_ledger:episode_list' %}" class="text-sm text-[var(--accent-primary)] hover:underline">
+                        View all →
+                    </a>
+                </div>
+                <div class="card-body p-0">
+                    {% if recent_episodes %}
+                    <div class="divide-y divide-[var(--border-subtle)]">
+                        {% for episode in recent_episodes %}
+                        <a href="{% url 'production_ledger:episode_detail' episode.pk %}" 
+                           class="flex items-center gap-4 p-4 hover:bg-[var(--bg-tertiary)] transition-colors">
+                            <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-warm)] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                                {% if episode.season_number and episode.episode_number %}
+                                S{{ episode.season_number }}E{{ episode.episode_number }}
+                                {% else %}
+                                EP
+                                {% endif %}
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <h3 class="font-medium text-[var(--text-primary)] truncate">{{ episode.title }}</h3>
+                                <p class="text-sm text-[var(--text-muted)]">
+                                    {{ episode.show.name }}
+                                    {% if episode.recording_date %} • {{ episode.recording_date|date:"M j, Y" }}{% endif %}
+                                </p>
+                            </div>
+                            <span class="badge {% if episode.status == 'published' %}badge-success{% elif episode.status == 'draft' %}badge-warning{% elif episode.status == 'editing' %}badge-info{% else %}badge-default{% endif %}">
+                                {{ episode.get_status_display }}
+                            </span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="empty-state">
+                        <svg class="empty-state-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                                  d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                        <h3 class="empty-state-title">No episodes yet</h3>
+                        <p class="empty-state-text">Create your first episode to get started.</p>
+                        <a href="{% url 'production_ledger:episode_create' %}" class="btn btn-primary mt-4">
+                            Create Episode
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Quick Actions & Activity -->
+        <div class="space-y-6">
+            <!-- Quick Actions -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Quick Actions</h2>
+                </div>
+                <div class="card-body space-y-2">
+                    <a href="{% url 'production_ledger:show_create' %}" 
+                       class="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-tertiary)]/80 transition-colors">
+                        <div class="w-10 h-10 rounded-lg bg-[var(--accent-primary)]/10 flex items-center justify-center">
+                            <svg class="w-5 h-5 text-[var(--accent-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                        </div>
+                        <span class="font-medium text-[var(--text-primary)]">New Show</span>
+                    </a>
+                    
+                    <a href="{% url 'production_ledger:episode_create' %}" 
+                       class="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-tertiary)]/80 transition-colors">
+                        <div class="w-10 h-10 rounded-lg bg-[var(--accent-primary)]/10 flex items-center justify-center">
+                            <svg class="w-5 h-5 text-[var(--accent-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                            </svg>
+                        </div>
+                        <span class="font-medium text-[var(--text-primary)]">New Episode</span>
+                    </a>
+                    
+                    <a href="{% url 'production_ledger:guest_create' %}" 
+                       class="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-tertiary)]/80 transition-colors">
+                        <div class="w-10 h-10 rounded-lg bg-[var(--accent-primary)]/10 flex items-center justify-center">
+                            <svg class="w-5 h-5 text-[var(--accent-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/>
+                            </svg>
+                        </div>
+                        <span class="font-medium text-[var(--text-primary)]">Add Guest</span>
+                    </a>
+                </div>
+            </div>
+            
+            <!-- Upcoming -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Upcoming</h2>
+                </div>
+                <div class="card-body">
+                    {% if upcoming_episodes %}
+                    <div class="space-y-3">
+                        {% for episode in upcoming_episodes %}
+                        <div class="flex items-start gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-[var(--status-warning)]/10 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-[var(--status-warning)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                </svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-[var(--text-primary)] truncate">{{ episode.title }}</p>
+                                <p class="text-xs text-[var(--text-muted)]">{{ episode.recording_date|date:"M j, Y" }}</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-sm text-[var(--text-muted)] text-center py-4">No upcoming recordings scheduled.</p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Shows Summary -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Your Shows</h2>
+                    <a href="{% url 'production_ledger:show_list' %}" class="text-sm text-[var(--accent-primary)] hover:underline">
+                        View all →
+                    </a>
+                </div>
+                <div class="card-body">
+                    {% if shows %}
+                    <div class="space-y-2">
+                        {% for show in shows|slice:":5" %}
+                        <a href="{% url 'production_ledger:show_detail' show.pk %}" 
+                           class="flex items-center justify-between p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors">
+                            <span class="text-sm font-medium text-[var(--text-primary)] truncate">{{ show.name }}</span>
+                            <span class="text-xs text-[var(--text-muted)]">{{ show.episodes.count }} eps</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <p class="text-sm text-[var(--text-muted)] mb-3">No shows yet.</p>
+                        <a href="{% url 'production_ledger:show_create' %}" class="btn btn-sm btn-primary">
+                            Create Show
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

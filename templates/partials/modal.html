@@ -1,0 +1,53 @@
+{# Modal Component Partial #}
+{# 
+   Usage in template:
+   {% include 'partials/modal.html' with id='my-modal' title='Modal Title' %}
+   
+   Open with JS:
+   ProducerForge.modal.open('my-modal')
+   
+   Parameters:
+   - id: Unique modal ID (required)
+   - title: Modal title
+   - size: sm|md|lg|xl|full (default: md)
+   - closable: Show close button (default: true)
+   - class: Additional CSS classes
+#}
+
+{% with size=size|default:"md" closable=closable|default:True %}
+<div id="{{ id }}" 
+     class="modal" 
+     role="dialog" 
+     aria-modal="true" 
+     aria-labelledby="{{ id }}-title"
+     data-modal>
+    <div class="modal-backdrop" data-modal-close></div>
+    
+    <div class="modal-container {% if size == 'sm' %}max-w-sm{% elif size == 'lg' %}max-w-2xl{% elif size == 'xl' %}max-w-4xl{% elif size == 'full' %}max-w-full mx-4{% endif %} {{ class }}">
+        {% if title or closable %}
+        <div class="modal-header">
+            {% if title %}
+            <h3 class="modal-title" id="{{ id }}-title">{{ title }}</h3>
+            {% endif %}
+            {% if closable %}
+            <button type="button" class="modal-close" data-modal-close aria-label="Close modal">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
+        
+        <div class="modal-body">
+            {% block modal_content %}{{ content }}{% endblock %}
+        </div>
+        
+        {% if footer %}
+        <div class="modal-footer">
+            {{ footer|safe }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endwith %}

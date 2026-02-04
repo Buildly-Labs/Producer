@@ -1,0 +1,106 @@
+{% extends "production_ledger/episode_detail.html" %}
+
+{% block tab_content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h3 class="text-lg font-medium text-gray-900">Transcript</h3>
+    </div>
+
+    {% if transcript %}
+    <!-- Transcript View -->
+    <div class="bg-white border border-gray-200 rounded-lg">
+        <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+            <div>
+                <span class="font-medium text-gray-900">{{ transcript.get_format_display }}</span>
+                <span class="text-sm text-gray-500 ml-2">{{ transcript.get_source_type_display }}</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                {% if transcript.word_count %}
+                <span class="text-sm text-gray-500">{{ transcript.word_count }} words</span>
+                {% endif %}
+                <span class="text-sm text-gray-500">v{{ transcript.version }}</span>
+            </div>
+        </div>
+        <div class="p-4 max-h-96 overflow-y-auto">
+            <pre class="text-sm text-gray-700 whitespace-pre-wrap font-sans">{{ transcript.content|truncatechars:5000 }}</pre>
+        </div>
+        {% if user_role in 'admin,host,producer,editor' %}
+        <div class="px-4 py-3 bg-gray-50 border-t border-gray-200 flex justify-end space-x-2">
+            <a href="{% url 'production_ledger:transcript_edit' transcript.pk %}" 
+               class="px-3 py-1 text-sm text-blue-600 border border-blue-300 rounded hover:bg-blue-50">
+                Edit Transcript
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Version History -->
+    {% if transcript_versions %}
+    <div class="border-t border-gray-200 pt-6">
+        <h4 class="text-sm font-medium text-gray-900 mb-4">Version History</h4>
+        <div class="space-y-2">
+            {% for v in transcript_versions %}
+            <div class="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2">
+                <div>
+                    <span class="font-medium text-gray-900">Version {{ v.version }}</span>
+                    <span class="text-sm text-gray-500">— {{ v.source_type }}</span>
+                </div>
+                <span class="text-sm text-gray-500">{{ v.created_at|date:"M d, Y H:i" }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <!-- No Transcript - Upload/Paste Options -->
+    <div class="text-center py-8 text-gray-500">
+        <p class="mb-4">No transcript available yet.</p>
+    </div>
+
+    {% if user_role in 'admin,host,producer,editor' %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Upload SRT/VTT -->
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h4 class="font-medium text-gray-900 mb-3">Upload Transcript File</h4>
+            <form method="post" enctype="multipart/form-data" class="space-y-4">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="upload">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Format</label>
+                    {{ upload_form.format }}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">File (.srt, .vtt, .txt)</label>
+                    {{ upload_form.file }}
+                </div>
+                <button type="submit" class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                    Upload
+                </button>
+            </form>
+        </div>
+
+        <!-- Paste Text -->
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h4 class="font-medium text-gray-900 mb-3">Paste Transcript</h4>
+            <form method="post" class="space-y-4">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="paste">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Format</label>
+                    {{ paste_form.format }}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Content</label>
+                    {{ paste_form.content }}
+                </div>
+                <button type="submit" class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                    Save
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "production_ledger/episode_detail.html" %}
+
+{% block tab_content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h3 class="text-lg font-medium text-gray-900">Clip Moments</h3>
+        <span class="text-sm text-gray-500">{{ clip_moments|length }} clips marked</span>
+    </div>
+
+    <!-- Add Clip Form -->
+    {% if user_role in 'admin,host,producer,editor' %}
+    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+        <h4 class="font-medium text-gray-900 mb-3">Mark New Clip</h4>
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <div class="grid grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Start Time (seconds)</label>
+                    {{ clip_form.start_seconds }}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">End Time (seconds)</label>
+                    {{ clip_form.end_seconds }}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Priority</label>
+                    {{ clip_form.priority }}
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Title</label>
+                {{ clip_form.title }}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Reason / Notes</label>
+                {{ clip_form.reason }}
+            </div>
+            <div class="flex justify-end">
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                    Add Clip
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- Clips List -->
+    <div class="space-y-4">
+        {% for clip in clip_moments %}
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <div class="flex justify-between items-start">
+                <div class="flex-1">
+                    <div class="flex items-center space-x-2">
+                        <h4 class="font-medium text-gray-900">{{ clip.title|default:"Untitled Clip" }}</h4>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium 
+                            {% if clip.priority == 'must' %}bg-red-100 text-red-800
+                            {% elif clip.priority == 'should' %}bg-yellow-100 text-yellow-800
+                            {% else %}bg-gray-100 text-gray-800{% endif %}">
+                            {{ clip.get_priority_display }}
+                        </span>
+                    </div>
+                    <div class="mt-1 text-sm text-gray-500">
+                        ⏱️ {{ clip.start_seconds|floatformat:1 }}s → {{ clip.end_seconds|floatformat:1 }}s 
+                        <span class="text-gray-400">({{ clip.duration|floatformat:1 }}s)</span>
+                    </div>
+                    {% if clip.reason %}
+                    <p class="mt-2 text-sm text-gray-600">{{ clip.reason }}</p>
+                    {% endif %}
+                    {% if clip.transcript_excerpt %}
+                    <div class="mt-2 bg-gray-50 rounded p-2 text-sm text-gray-700 italic">
+                        "{{ clip.transcript_excerpt|truncatechars:200 }}"
+                    </div>
+                    {% endif %}
+                </div>
+                {% if user_role in 'admin,host,producer,editor' %}
+                <div class="ml-4 flex space-x-2">
+                    <a href="{% url 'production_ledger:clip_edit' clip.pk %}" class="text-sm text-blue-600 hover:text-blue-800">Edit</a>
+                    <form method="post" action="{% url 'production_ledger:clip_delete' clip.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-sm text-red-600 hover:text-red-800" onclick="return confirm('Delete this clip?')">Delete</button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="text-center py-8 text-gray-500">
+            <p>No clips marked yet.</p>
+            <p class="text-sm">Mark interesting moments in the episode above.</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

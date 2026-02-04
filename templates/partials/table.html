@@ -1,0 +1,70 @@
+{# Table Component Partial #}
+{# 
+   Usage:
+   {% include 'partials/table.html' with headers=headers rows=rows %}
+   
+   Parameters:
+   - headers: List of header strings or dicts with 'label' and optional 'class', 'sortable'
+   - rows: Iterable of row data (each row is a list of cells)
+   - striped: Alternate row colors (default: false)
+   - hoverable: Highlight rows on hover (default: true)
+   - compact: Smaller padding (default: false)
+   - class: Additional table classes
+   - empty_message: Message when no rows
+   - caption: Optional table caption
+#}
+
+{% with hoverable=hoverable|default:True %}
+<div class="table-container {{ class }}">
+    <table class="data-table {% if striped %}striped{% endif %} {% if hoverable %}hoverable{% endif %} {% if compact %}compact{% endif %}">
+        {% if caption %}
+        <caption class="sr-only">{{ caption }}</caption>
+        {% endif %}
+        
+        {% if headers %}
+        <thead>
+            <tr>
+                {% for header in headers %}
+                <th {% if header.class %}class="{{ header.class }}"{% endif %}>
+                    {% if header.sortable %}
+                    <button type="button" class="table-sort-btn">
+                        {{ header.label|default:header }}
+                        <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+                        </svg>
+                    </button>
+                    {% else %}
+                    {{ header.label|default:header }}
+                    {% endif %}
+                </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        {% endif %}
+        
+        <tbody>
+            {% if rows %}
+                {% for row in rows %}
+                <tr>
+                    {% for cell in row %}
+                    <td>{{ cell|safe }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="{{ headers|length }}" class="text-center py-12">
+                        <div class="empty-state" style="padding: 0;">
+                            <svg class="empty-state-icon w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                            </svg>
+                            <p class="empty-state-title text-base">{{ empty_message|default:"No data available" }}</p>
+                        </div>
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endwith %}

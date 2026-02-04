@@ -1,0 +1,17 @@
+{# Badge Component Partial #}
+{# Usage: {% include 'partials/badge.html' with variant='success' text='Active' %} #}
+{# 
+   Parameters:
+   - variant: default|success|warning|danger|info (default: default)
+   - text: Badge text
+   - size: sm|md|lg (default: md)
+   - class: Additional CSS classes
+   - dot: Show status dot before text (boolean)
+#}
+
+{% with variant=variant|default:"default" size=size|default:"md" %}
+<span class="badge badge-{{ variant }} {% if size == 'sm' %}text-xs px-1.5 py-0.5{% elif size == 'lg' %}text-sm px-3 py-1{% endif %} {{ class }}">
+    {% if dot %}<span class="badge-dot"></span>{% endif %}
+    {{ text }}
+</span>
+{% endwith %}

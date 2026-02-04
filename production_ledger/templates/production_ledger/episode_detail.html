@@ -1,0 +1,155 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}{{ episode.title }} - Production Ledger{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-start">
+        <div>
+            <div class="text-sm text-gray-500 mb-1">
+                <a href="{% url 'production_ledger:show_detail' episode.show.pk %}" class="hover:text-gray-700">{{ episode.show.name }}</a>
+            </div>
+            <h1 class="text-2xl font-bold text-gray-900">{{ episode.title }}</h1>
+            <div class="mt-2 flex items-center space-x-4">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
+                    {% if episode.status == 'published' %}bg-green-100 text-green-800
+                    {% elif episode.status == 'approved' %}bg-blue-100 text-blue-800
+                    {% elif episode.status == 'draft' %}bg-gray-100 text-gray-800
+                    {% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                    {{ episode.get_status_display }}
+                </span>
+                {% if episode.episode_type %}
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white" 
+                      style="background-color: {{ episode.episode_type.color }}">
+                    {{ episode.episode_type.icon }} {{ episode.episode_type.name }}
+                </span>
+                {% endif %}
+                <span class="text-sm text-gray-500">{{ episode.target_minutes }} min target</span>
+            </div>
+        </div>
+        <div class="flex space-x-2">
+            {% if user_role in 'admin,host,producer' %}
+            <a href="{% url 'production_ledger:episode_status' episode.pk %}" 
+               class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                Change Status
+            </a>
+            <a href="{% url 'production_ledger:episode_edit' episode.pk %}" 
+               class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                Edit
+            </a>
+            {% endif %}
+            <a href="{% url 'production_ledger:control_room' episode.pk %}" 
+               class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700">
+                🎬 Control Room
+            </a>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="border-b border-gray-200">
+        <nav class="-mb-px flex space-x-8">
+            <a href="{% url 'production_ledger:episode_detail' episode.pk %}" 
+               class="{% if active_tab == 'overview' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Overview
+            </a>
+            <a href="{% url 'production_ledger:episode_segments' episode.pk %}" 
+               class="{% if active_tab == 'segments' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Segments
+            </a>
+            <a href="{% url 'production_ledger:episode_guests' episode.pk %}" 
+               class="{% if active_tab == 'guests' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Guests
+            </a>
+            <a href="{% url 'production_ledger:episode_media' episode.pk %}" 
+               class="{% if active_tab == 'media' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Media
+            </a>
+            <a href="{% url 'production_ledger:episode_transcript' episode.pk %}" 
+               class="{% if active_tab == 'transcript' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Transcript
+            </a>
+            <a href="{% url 'production_ledger:episode_clips' episode.pk %}" 
+               class="{% if active_tab == 'clips' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Clips
+            </a>
+            <a href="{% url 'production_ledger:episode_ai_drafts' episode.pk %}" 
+               class="{% if active_tab == 'ai_drafts' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                AI Drafts
+            </a>
+            <a href="{% url 'production_ledger:episode_show_notes' episode.pk %}" 
+               class="{% if active_tab == 'show_notes' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Show Notes
+            </a>
+            <a href="{% url 'production_ledger:episode_exports' episode.pk %}" 
+               class="{% if active_tab == 'exports' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Exports
+            </a>
+            <a href="{% url 'production_ledger:episode_checklist' episode.pk %}" 
+               class="{% if active_tab == 'checklist' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Checklist
+            </a>
+        </nav>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="bg-white shadow rounded-lg p-6">
+        {% block tab_content %}
+        <!-- Default overview content -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Episode Details</h3>
+                <dl class="space-y-2">
+                    <div class="flex">
+                        <dt class="w-32 text-sm text-gray-500">Type:</dt>
+                        <dd class="text-sm text-gray-900">{{ episode.get_episode_type_display }}</dd>
+                    </div>
+                    <div class="flex">
+                        <dt class="w-32 text-sm text-gray-500">Recording:</dt>
+                        <dd class="text-sm text-gray-900">{{ episode.get_recording_context_display }}</dd>
+                    </div>
+                    <div class="flex">
+                        <dt class="w-32 text-sm text-gray-500">Target:</dt>
+                        <dd class="text-sm text-gray-900">{{ episode.target_minutes }} minutes</dd>
+                    </div>
+                    {% if episode.scheduled_for %}
+                    <div class="flex">
+                        <dt class="w-32 text-sm text-gray-500">Scheduled:</dt>
+                        <dd class="text-sm text-gray-900">{{ episode.scheduled_for|date:"M d, Y H:i" }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if episode.publish_date %}
+                    <div class="flex">
+                        <dt class="w-32 text-sm text-gray-500">Publish Date:</dt>
+                        <dd class="text-sm text-gray-900">{{ episode.publish_date|date:"M d, Y" }}</dd>
+                    </div>
+                    {% endif %}
+                </dl>
+            </div>
+            
+            <div>
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Stats</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-2xl font-bold text-gray-900">{{ episode.segments.count }}</div>
+                        <div class="text-sm text-gray-500">Segments</div>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-2xl font-bold text-gray-900">{{ episode.episode_guests.count }}</div>
+                        <div class="text-sm text-gray-500">Guests</div>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-2xl font-bold text-gray-900">{{ episode.clip_moments.count }}</div>
+                        <div class="text-sm text-gray-500">Clips</div>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-2xl font-bold text-gray-900">{{ episode.ai_artifacts.count }}</div>
+                        <div class="text-sm text-gray-500">AI Drafts</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endblock %}
+    </div>
+</div>
+{% endblock %}

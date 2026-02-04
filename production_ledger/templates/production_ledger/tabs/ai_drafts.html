@@ -1,0 +1,123 @@
+{% extends "production_ledger/episode_detail.html" %}
+
+{% block tab_content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h3 class="text-lg font-medium text-gray-900">AI-Generated Drafts</h3>
+        <span class="text-sm text-gray-500">All AI output requires human approval</span>
+    </div>
+
+    <!-- Generate New -->
+    {% if user_role in 'admin,host,producer,editor' %}
+    <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+        <h4 class="font-medium text-blue-900 mb-3">Generate AI Content</h4>
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Content Type</label>
+                    {{ generate_form.artifact_type }}
+                </div>
+                <div class="flex items-end space-x-4">
+                    <label class="flex items-center">
+                        {{ generate_form.use_transcript }}
+                        <span class="ml-2 text-sm text-gray-700">Use Transcript</span>
+                    </label>
+                    <label class="flex items-center">
+                        {{ generate_form.use_clips }}
+                        <span class="ml-2 text-sm text-gray-700">Use Clips</span>
+                    </label>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Topic/Focus (optional)</label>
+                {{ generate_form.topic_prompt }}
+            </div>
+            <div class="flex justify-end">
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                    🤖 Generate
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- Artifacts List -->
+    <div class="space-y-4">
+        {% for artifact in ai_artifacts %}
+        <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                <div>
+                    <span class="font-medium text-gray-900">{{ artifact.get_artifact_type_display }}</span>
+                    <span class="text-sm text-gray-500 ml-2">{{ artifact.created_at|date:"M d, Y H:i" }}</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium 
+                        {% if artifact.approval_status == 'approved' %}bg-green-100 text-green-800
+                        {% elif artifact.approval_status == 'rejected' %}bg-red-100 text-red-800
+                        {% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                        {{ artifact.get_approval_status_display }}
+                    </span>
+                </div>
+            </div>
+            
+            <div class="p-4">
+                <!-- Transparency Info -->
+                <div class="mb-3 text-xs text-gray-500">
+                    <span class="font-medium">Provider:</span> {{ artifact.provider }} / {{ artifact.model }}
+                    {% if artifact.transparency_summary %}
+                    <span class="ml-4">{{ artifact.transparency_summary }}</span>
+                    {% endif %}
+                </div>
+                
+                <!-- Output Preview -->
+                <div class="bg-gray-50 rounded p-3 max-h-64 overflow-y-auto">
+                    <pre class="text-sm text-gray-700 whitespace-pre-wrap">{{ artifact.output_text|truncatechars:1000 }}</pre>
+                </div>
+                
+                <!-- Actions -->
+                {% if artifact.approval_status == 'pending' and user_role in 'admin,host,producer' %}
+                <div class="mt-4 flex justify-end space-x-2">
+                    <form method="post" action="{% url 'production_ledger:ai_artifact_approve' artifact.pk %}" class="inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="reject">
+                        <input type="text" name="notes" placeholder="Rejection reason..." class="text-sm border-gray-300 rounded-md mr-2">
+                        <button type="submit" class="px-3 py-1 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50">
+                            Reject
+                        </button>
+                    </form>
+                    <form method="post" action="{% url 'production_ledger:ai_artifact_approve' artifact.pk %}" class="inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="approve">
+                        <button type="submit" class="px-3 py-1 text-sm text-white bg-green-600 rounded hover:bg-green-700">
+                            ✓ Approve
+                        </button>
+                    </form>
+                </div>
+                {% elif artifact.approval_status == 'approved' and artifact.artifact_type == 'show_notes' %}
+                <div class="mt-4 flex justify-end">
+                    <form method="post" action="{% url 'production_ledger:ai_artifact_use' artifact.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="px-3 py-1 text-sm text-white bg-blue-600 rounded hover:bg-blue-700">
+                            Use as Show Notes Draft →
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+                
+                {% if artifact.notes %}
+                <div class="mt-3 text-sm text-gray-500">
+                    <span class="font-medium">Notes:</span> {{ artifact.notes }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="text-center py-8 text-gray-500">
+            <p>No AI artifacts generated yet.</p>
+            <p class="text-sm">Use the form above to generate content.</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

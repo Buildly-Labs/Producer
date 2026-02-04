@@ -1,0 +1,36 @@
+{# Card Component Partial #}
+{# Usage: {% include 'partials/card.html' with title='Card Title' %} #}
+{# 
+   Parameters:
+   - title: Optional card title
+   - subtitle: Optional card subtitle
+   - padding: sm|md|lg|none (default: md)
+   - class: Additional CSS classes
+   - body_class: CSS classes for card body
+   - header_action: HTML for action button in header
+   - footer: HTML content for card footer
+#}
+
+{% with padding=padding|default:"md" %}
+<div class="card {{ class }}">
+    {% if title or header_action %}
+    <div class="card-header {% if not subtitle %}items-center{% endif %}">
+        <div>
+            {% if title %}<h3 class="card-title">{{ title }}</h3>{% endif %}
+            {% if subtitle %}<p class="card-subtitle">{{ subtitle }}</p>{% endif %}
+        </div>
+        {% if header_action %}
+        <div class="card-header-action">{{ header_action }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+    <div class="card-body {% if padding == 'sm' %}p-3{% elif padding == 'lg' %}p-8{% elif padding == 'none' %}p-0{% endif %} {{ body_class }}">
+        {% block card_content %}{{ content }}{% endblock %}
+    </div>
+    
+    {% if footer %}
+    <div class="card-footer">{{ footer }}</div>
+    {% endif %}
+</div>
+{% endwith %}

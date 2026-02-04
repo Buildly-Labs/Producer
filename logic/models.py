@@ -1,30 +1,10 @@
-import uuid
-from django.db import models
-from django.contrib import admin
+"""
+Logic app models.
 
+This app is reserved for core business logic models that don't fit
+into the production_ledger domain. Currently empty.
 
-class Restaurant(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=255)
-
-    def __str__(self):
-        return self.name
-
-
-class RestaurantAdmin(admin.ModelAdmin):
-    list_display = ('name', 'id')
-    search_fields = ['name']    
-
-
-class Menu(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=255)
-
-    def __str__(self):
-        return self.name
-
-
-class MenuAdmin(admin.ModelAdmin):
-    list_display = ('name', 'id')
-    search_fields = ['name']
+See production_ledger/models.py for the main application models.
+"""
+# Models can be added here as needed
 

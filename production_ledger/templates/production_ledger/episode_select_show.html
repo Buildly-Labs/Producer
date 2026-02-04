@@ -1,0 +1,65 @@
+{% extends "production_ledger/base.html" %}
+{% load static %}
+
+{% block title %}Create Episode - ProducerForge{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+    <!-- Header -->
+    <div>
+        <h1 class="text-2xl font-bold text-[var(--text-primary)]">Create New Episode</h1>
+        <p class="text-[var(--text-secondary)] mt-1">Select a show to create an episode for.</p>
+    </div>
+    
+    {% if shows %}
+    <!-- Shows Grid -->
+    <div class="grid gap-4">
+        {% for show in shows %}
+        <a href="{% url 'production_ledger:episode_create_for_show' show_id=show.pk %}" 
+           class="card hover:border-[var(--accent-primary)]/50 transition-all hover:shadow-lg">
+            <div class="card-body flex items-center gap-4">
+                <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-warm)] flex items-center justify-center text-white flex-shrink-0">
+                    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                    </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h3 class="font-semibold text-[var(--text-primary)] text-lg">{{ show.name }}</h3>
+                    <p class="text-sm text-[var(--text-muted)]">{{ show.episodes.count }} episode{{ show.episodes.count|pluralize }}</p>
+                </div>
+                <svg class="w-5 h-5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="card">
+        <div class="empty-state py-12">
+            <svg class="empty-state-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                      d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+            </svg>
+            <h3 class="empty-state-title">No shows yet</h3>
+            <p class="empty-state-text">You need to create a show before you can add episodes.</p>
+            <a href="{% url 'production_ledger:show_create' %}" class="btn btn-primary mt-4">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                Create Your First Show
+            </a>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Back Link -->
+    <div class="text-center">
+        <a href="{% url 'production_ledger:dashboard' %}" class="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+            ← Back to Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}

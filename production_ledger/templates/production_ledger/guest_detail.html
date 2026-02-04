@@ -1,0 +1,112 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}{{ guest.name }} - Production Ledger{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-start">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">{{ guest.name }}</h1>
+            {% if guest.title or guest.org %}
+            <p class="text-gray-500">
+                {% if guest.title %}{{ guest.title }}{% endif %}
+                {% if guest.title and guest.org %}at{% endif %}
+                {% if guest.org %}{{ guest.org }}{% endif %}
+            </p>
+            {% endif %}
+        </div>
+        <a href="{% url 'production_ledger:guest_edit' guest.pk %}" 
+           class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+            Edit
+        </a>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Info Card -->
+        <div class="bg-white shadow rounded-lg p-6">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">Contact Info</h3>
+            <dl class="space-y-3">
+                {% if guest.email %}
+                <div>
+                    <dt class="text-sm text-gray-500">Email</dt>
+                    <dd><a href="mailto:{{ guest.email }}" class="text-blue-600 hover:text-blue-800">{{ guest.email }}</a></dd>
+                </div>
+                {% endif %}
+                {% if guest.phone %}
+                <div>
+                    <dt class="text-sm text-gray-500">Phone</dt>
+                    <dd>{{ guest.phone }}</dd>
+                </div>
+                {% endif %}
+                {% if guest.timezone %}
+                <div>
+                    <dt class="text-sm text-gray-500">Timezone</dt>
+                    <dd>{{ guest.timezone }}</dd>
+                </div>
+                {% endif %}
+                {% if guest.links.linkedin %}
+                <div>
+                    <dt class="text-sm text-gray-500">LinkedIn</dt>
+                    <dd><a href="{{ guest.links.linkedin }}" target="_blank" class="text-blue-600 hover:text-blue-800">Profile →</a></dd>
+                </div>
+                {% endif %}
+                {% if guest.links.twitter %}
+                <div>
+                    <dt class="text-sm text-gray-500">Twitter</dt>
+                    <dd><a href="https://twitter.com/{{ guest.links.twitter }}" target="_blank" class="text-blue-600 hover:text-blue-800">@{{ guest.links.twitter }}</a></dd>
+                </div>
+                {% endif %}
+                {% if guest.links.website %}
+                <div>
+                    <dt class="text-sm text-gray-500">Website</dt>
+                    <dd><a href="{{ guest.links.website }}" target="_blank" class="text-blue-600 hover:text-blue-800">{{ guest.links.website }}</a></dd>
+                </div>
+                {% endif %}
+                {% if not guest.email and not guest.phone and not guest.links.linkedin and not guest.links.twitter and not guest.links.website %}
+                <p class="text-gray-500 italic">No contact info provided.</p>
+                {% endif %}
+            </dl>
+        </div>
+
+        <!-- Bio -->
+        <div class="bg-white shadow rounded-lg p-6">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">Bio</h3>
+            {% if guest.bio %}
+            <p class="text-gray-700 whitespace-pre-line">{{ guest.bio }}</p>
+            {% else %}
+            <p class="text-gray-500 italic">No bio provided.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Episode Appearances -->
+    <div class="bg-white shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h3 class="text-lg font-medium text-gray-900">Episode Appearances</h3>
+        </div>
+        <div class="divide-y divide-gray-200">
+            {% for eg in guest.episode_appearances.all %}
+            <div class="px-6 py-4 flex justify-between items-center">
+                <div>
+                    <a href="{% url 'production_ledger:episode_detail' eg.episode.pk %}" class="font-medium text-gray-900 hover:text-blue-600">
+                        {{ eg.episode.title }}
+                    </a>
+                    <div class="text-sm text-gray-500">
+                        {{ eg.episode.show.name }} • {{ eg.get_role_display }}
+                    </div>
+                </div>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
+                    {% if eg.episode.status == 'published' %}bg-green-100 text-green-800
+                    {% else %}bg-gray-100 text-gray-800{% endif %}">
+                    {{ eg.episode.get_status_display }}
+                </span>
+            </div>
+            {% empty %}
+            <div class="px-6 py-8 text-center text-gray-500">
+                No episode appearances yet.
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends "production_ledger/episode_detail.html" %}
+
+{% block tab_content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h3 class="text-lg font-medium text-gray-900">Run of Show</h3>
+        <div class="text-sm text-gray-500">
+            Total: {{ segments|length }} segments, 
+            {% with total=0 %}
+                {% for seg in segments %}{% endfor %}
+            {% endwith %}
+            estimated time
+        </div>
+    </div>
+
+    <!-- Segments List -->
+    <div class="space-y-4">
+        {% for segment in segments %}
+        <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div class="flex justify-between items-start">
+                <div class="flex items-start">
+                    <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-medium mr-4">
+                        {{ segment.order }}
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-900">{{ segment.title }}</h4>
+                        <p class="text-sm text-gray-500">{{ segment.purpose }}</p>
+                        <div class="mt-2 flex items-center space-x-4 text-sm text-gray-500">
+                            <span>⏱️ {{ segment.timebox_minutes }} min</span>
+                            <span>👤 {{ segment.get_owner_role_display }}</span>
+                        </div>
+                        {% if segment.key_questions %}
+                        <div class="mt-2">
+                            <span class="text-xs font-medium text-gray-500 uppercase">Key Questions:</span>
+                            <p class="text-sm text-gray-700 whitespace-pre-line">{{ segment.key_questions }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if user_role in 'admin,host,producer' %}
+                <div class="flex space-x-2">
+                    <a href="{% url 'production_ledger:segment_edit' segment.pk %}" class="text-sm text-blue-600 hover:text-blue-800">Edit</a>
+                    <form method="post" action="{% url 'production_ledger:segment_delete' segment.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-sm text-red-600 hover:text-red-800" onclick="return confirm('Delete this segment?')">Delete</button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="text-center py-8 text-gray-500">
+            <p>No segments defined yet.</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Add Segment Form -->
+    {% if user_role in 'admin,host,producer' %}
+    <div class="border-t border-gray-200 pt-6">
+        <h4 class="text-sm font-medium text-gray-900 mb-4">Add Segment</h4>
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Order</label>
+                    {{ segment_form.order }}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Title</label>
+                    {{ segment_form.title }}
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Duration (minutes)</label>
+                    {{ segment_form.timebox_minutes }}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Owner</label>
+                    {{ segment_form.owner_role }}
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Purpose</label>
+                {{ segment_form.purpose }}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Key Questions</label>
+                {{ segment_form.key_questions }}
+            </div>
+            <div class="flex justify-end">
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                    Add Segment
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

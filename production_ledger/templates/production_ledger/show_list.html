@@ -1,0 +1,53 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Shows - Production Ledger{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-900">Shows</h1>
+        <a href="{% url 'production_ledger:show_create' %}" 
+           class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+            + New Show
+        </a>
+    </div>
+
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+        <ul class="divide-y divide-gray-200">
+            {% for show in shows %}
+            <li>
+                <a href="{% url 'production_ledger:show_detail' show.pk %}" class="block hover:bg-gray-50 px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            {% if show.brand_primary_color %}
+                            <div class="w-4 h-4 rounded-full mr-3" style="background-color: {{ show.brand_primary_color }}"></div>
+                            {% endif %}
+                            <div>
+                                <p class="text-lg font-medium text-gray-900">{{ show.name }}</p>
+                                <p class="text-sm text-gray-500">{{ show.description|truncatewords:20 }}</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm text-gray-500">{{ show.episodes.count }} episodes</p>
+                        </div>
+                    </div>
+                </a>
+            </li>
+            {% empty %}
+            <li class="px-6 py-12 text-center">
+                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                </svg>
+                <h3 class="mt-2 text-sm font-medium text-gray-900">No shows</h3>
+                <p class="mt-1 text-sm text-gray-500">Get started by creating a new show.</p>
+                <div class="mt-6">
+                    <a href="{% url 'production_ledger:show_create' %}" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
+                        + New Show
+                    </a>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endblock %}

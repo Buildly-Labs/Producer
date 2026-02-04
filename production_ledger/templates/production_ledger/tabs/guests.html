@@ -1,0 +1,101 @@
+{% extends "production_ledger/episode_detail.html" %}
+
+{% block tab_content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h3 class="text-lg font-medium text-gray-900">Episode Guests</h3>
+    </div>
+
+    <!-- Current Guests -->
+    <div class="space-y-4">
+        {% for eg in episode_guests %}
+        <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h4 class="font-medium text-gray-900">{{ eg.guest.name }}</h4>
+                    <p class="text-sm text-gray-500">
+                        {% if eg.guest.title %}{{ eg.guest.title }}{% endif %}
+                        {% if eg.guest.org %}at {{ eg.guest.org }}{% endif %}
+                    </p>
+                    <div class="mt-2 flex items-center space-x-4">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                            {{ eg.get_role_display }}
+                        </span>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium 
+                            {% if eg.quote_approval_status == 'approved' %}bg-green-100 text-green-800
+                            {% elif eg.quote_approval_status == 'rejected' %}bg-red-100 text-red-800
+                            {% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                            Quotes: {{ eg.get_quote_approval_status_display }}
+                        </span>
+                    </div>
+                    {% if eg.key_topics %}
+                    <div class="mt-2">
+                        <span class="text-xs font-medium text-gray-500">Key Topics:</span>
+                        <p class="text-sm text-gray-700">{{ eg.key_topics }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+                {% if user_role in 'admin,host,producer' %}
+                <div class="flex space-x-2">
+                    <a href="{% url 'production_ledger:episode_guest_edit' eg.pk %}" class="text-sm text-blue-600 hover:text-blue-800">Edit</a>
+                    <form method="post" action="{% url 'production_ledger:episode_guest_delete' eg.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-sm text-red-600 hover:text-red-800" onclick="return confirm('Remove this guest?')">Remove</button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="text-center py-8 text-gray-500">
+            <p>No guests added yet.</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Add Guest Form -->
+    {% if user_role in 'admin,host,producer' %}
+    <div class="border-t border-gray-200 pt-6">
+        <h4 class="text-sm font-medium text-gray-900 mb-4">Add Guest to Episode</h4>
+        
+        {% if available_guests %}
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Guest</label>
+                    <select name="guest" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                        {% for guest in available_guests %}
+                        <option value="{{ guest.pk }}">{{ guest.name }}{% if guest.org %} ({{ guest.org }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Role</label>
+                    {{ guest_form.role }}
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Key Topics</label>
+                {{ guest_form.key_topics }}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Prep Notes</label>
+                {{ guest_form.prep_notes }}
+            </div>
+            <div class="flex justify-end">
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                    Add Guest
+                </button>
+            </div>
+        </form>
+        {% else %}
+        <p class="text-sm text-gray-500">
+            All available guests are already added. 
+            <a href="{% url 'production_ledger:guest_create' %}" class="text-blue-600 hover:text-blue-800">Create a new guest →</a>
+        </p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

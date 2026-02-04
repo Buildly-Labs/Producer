@@ -50,6 +50,7 @@ INSTALLED_APPS_THIRD_PARTIES = [
 
 INSTALLED_APPS_LOCAL = [
     'logic',
+    'production_ledger',
 ]
 
 INSTALLED_APPS = INSTALLED_APPS_DJANGO + INSTALLED_APPS_THIRD_PARTIES + \
@@ -70,7 +71,7 @@ ROOT_URLCONF = 'logic_service.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(os.path.dirname(BASE_DIR), 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -141,7 +142,13 @@ USE_TZ = True
 
 STATIC_URL = os.getenv('STATIC_URL', '/static/')
 
-STATIC_ROOT = os.getenv('STATIC_ROOT', 'static/')
+# STATIC_ROOT is where collectstatic gathers files (for production)
+STATIC_ROOT = os.getenv('STATIC_ROOT', os.path.join(os.path.dirname(BASE_DIR), 'staticfiles'))
+
+# Additional static files directories (for development)
+STATICFILES_DIRS = [
+    os.path.join(os.path.dirname(BASE_DIR), 'static'),
+]
 
 
 # Rest Framework
@@ -205,6 +212,12 @@ LOGGING = {
 # Search Service
 
 SEARCH_SERVICE_ENABLED = True if os.getenv('SEARCH_SERVICE_ENABLED') == 'True' else False
+
+
+# Authentication
+LOGIN_URL = '/auth/login/'
+LOGIN_REDIRECT_URL = '/ledger/'
+LOGOUT_REDIRECT_URL = '/auth/login/'
 
 
 # for local development

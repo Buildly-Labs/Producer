@@ -1,0 +1,51 @@
+{# Stats Card Component Partial #}
+{# Usage: {% include 'partials/stats_card.html' with title='Total Episodes' value='42' %} #}
+{# 
+   Parameters:
+   - title: Stat label
+   - value: Main stat value
+   - change: Change indicator (e.g., "+12%")
+   - change_type: up|down|neutral (default: neutral)
+   - icon: SVG icon HTML
+   - href: Optional link
+   - class: Additional CSS classes
+#}
+
+{% with change_type=change_type|default:"neutral" %}
+<div class="stat-card {{ class }}">
+    {% if icon %}
+    <div class="stat-card-icon">
+        {{ icon|safe }}
+    </div>
+    {% endif %}
+    
+    <div class="stat-card-content">
+        <p class="stat-card-label">{{ title }}</p>
+        <div class="stat-card-value-row">
+            <p class="stat-card-value">{{ value }}</p>
+            {% if change %}
+            <span class="stat-card-change {% if change_type == 'up' %}text-[var(--status-success)]{% elif change_type == 'down' %}text-[var(--status-danger)]{% else %}text-[var(--text-muted)]{% endif %}">
+                {% if change_type == 'up' %}
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/>
+                </svg>
+                {% elif change_type == 'down' %}
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+                </svg>
+                {% endif %}
+                {{ change }}
+            </span>
+            {% endif %}
+        </div>
+    </div>
+    
+    {% if href %}
+    <a href="{{ href }}" class="stat-card-link" aria-label="View {{ title }}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+    </a>
+    {% endif %}
+</div>
+{% endwith %}

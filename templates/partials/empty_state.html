@@ -1,0 +1,52 @@
+{# Empty State Component Partial #}
+{# Usage: {% include 'partials/empty_state.html' with title='No episodes' %} #}
+{# 
+   Parameters:
+   - icon: SVG icon HTML (optional, defaults to folder icon)
+   - title: Empty state title
+   - description: Description text
+   - action_label: CTA button label
+   - action_href: CTA button URL
+   - action_click: Optional onclick handler (renders as button)
+   - size: sm|md|lg (default: md)
+   - class: Additional CSS classes
+#}
+
+{% with size=size|default:"md" %}
+<div class="empty-state {% if size == 'sm' %}py-8{% elif size == 'lg' %}py-20{% endif %} {{ class }}">
+    <div class="empty-state-icon {% if size == 'sm' %}w-10 h-10{% elif size == 'lg' %}w-20 h-20{% endif %}">
+        {% if icon %}
+            {{ icon|safe }}
+        {% else %}
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                      d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+        {% endif %}
+    </div>
+    
+    <h3 class="empty-state-title {% if size == 'sm' %}text-base{% elif size == 'lg' %}text-xl{% endif %}">
+        {{ title }}
+    </h3>
+    
+    {% if description %}
+    <p class="empty-state-text {% if size == 'sm' %}text-xs{% elif size == 'lg' %}text-base{% endif %}">
+        {{ description }}
+    </p>
+    {% endif %}
+    
+    {% if action_label %}
+    <div class="mt-4">
+        {% if action_href %}
+        <a href="{{ action_href }}" class="btn btn-primary {% if size == 'sm' %}btn-sm{% endif %}">
+            {{ action_label }}
+        </a>
+        {% elif action_click %}
+        <button type="button" onclick="{{ action_click }}" class="btn btn-primary {% if size == 'sm' %}btn-sm{% endif %}">
+            {{ action_label }}
+        </button>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endwith %}
