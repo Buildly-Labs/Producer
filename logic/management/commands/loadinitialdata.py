@@ -27,6 +27,9 @@ class Command(BaseCommand):
             self.style.SUCCESS('Starting to load initial data...')
         )
         
+        # Ensure a default admin user exists
+        self._ensure_admin_user()
+        
         # Seed default episode types
         if not options.get('skip_episode_types'):
             self._seed_episode_types()
@@ -73,3 +76,25 @@ class Command(BaseCommand):
         # SomeModel.objects.get_or_create(name='Sample', defaults={'description': 'Sample data'})
         
         self.stdout.write('Sample data creation completed.')
+
+    def _ensure_admin_user(self):
+        """Create a default admin user if none exists.
+
+        Credentials come from PRODUCER_ADMIN_EMAIL / PRODUCER_ADMIN_PASSWORD
+        env-vars and fall back to admin@example.com / changeme123.
+        The user is flagged as a superuser so they can access the Django admin.
+        """
+        import os
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        if User.objects.filter(is_superuser=True).exists():
+            self.stdout.write('Admin user already exists.')
+            return
+        email = os.getenv('PRODUCER_ADMIN_EMAIL', 'admin@example.com')
+        password = os.getenv('PRODUCER_ADMIN_PASSWORD', 'changeme123')
+        User.objects.create_superuser(
+            username=email.split('@')[0],
+            email=email,
+            password=password,
+        )
+        self.stdout.write(self.style.SUCCESS(f'Created default admin user: {email}'))

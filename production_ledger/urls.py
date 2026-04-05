@@ -1,6 +1,7 @@
 """
 URL configuration for Production Ledger.
 """
+from django.contrib.auth import views as auth_views
 from django.urls import path, include
 
 from . import views
@@ -10,6 +11,12 @@ app_name = 'production_ledger'
 
 # Main UI URLs
 urlpatterns = [
+    # Authentication (namespaced so templates can use production_ledger:login)
+    path('auth/login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
+    path('auth/logout/', auth_views.LogoutView.as_view(), name='logout'),
+    # register currently redirects to login (no self-registration yet)
+    path('auth/register/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='register'),
+
     # Dashboard
     path('', views.DashboardView.as_view(), name='dashboard'),
     

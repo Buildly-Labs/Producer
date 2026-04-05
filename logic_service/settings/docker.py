@@ -29,6 +29,11 @@ SECRET_KEY = 'django-insecure-4w$$of)udb)qv8=vs^5vy#8%9+kk73x0u$de0dxg2xl+@s^v1g
 # SECURITY WARNING: define the correct hosts in production!
 ALLOWED_HOSTS = ['*']
 
+# Allow CSRF POST from the DO app domain (HTTPS)
+CSRF_TRUSTED_ORIGINS = [
+    origin for origin in [os.getenv('CSRF_TRUSTED_ORIGIN', 'https://*.ondigitalocean.app')]
+]
+
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # Only add debug toolbar and other dev-only apps when not in Docker

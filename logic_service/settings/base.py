@@ -215,9 +215,10 @@ SEARCH_SERVICE_ENABLED = True if os.getenv('SEARCH_SERVICE_ENABLED') == 'True' e
 
 
 # Authentication
-LOGIN_URL = '/auth/login/'
+# Use a named URL so FORCE_SCRIPT_NAME is respected automatically.
+LOGIN_URL = 'production_ledger:login'
 LOGIN_REDIRECT_URL = '/ledger/'
-LOGOUT_REDIRECT_URL = '/auth/login/'
+LOGOUT_REDIRECT_URL = '/'
 
 
 # for local development
