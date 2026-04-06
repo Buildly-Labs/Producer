@@ -4,9 +4,9 @@
 
 {% block content %}
 <div class="max-w-2xl mx-auto">
-    <div class="bg-white shadow rounded-lg">
-        <div class="px-6 py-4 border-b border-gray-200">
-            <h1 class="text-xl font-medium text-gray-900">
+    <div class="bg-[var(--bg-elevated)] shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-[var(--border-default)]">
+            <h1 class="text-xl font-medium text-[var(--text-primary)]">
                 {% if form.instance.pk %}Edit Show{% else %}Create New Show{% endif %}
             </h1>
         </div>
@@ -16,13 +16,13 @@
             
             {% for field in form %}
             <div>
-                <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)]">
                     {{ field.label }}
                     {% if field.field.required %}<span class="text-red-500">*</span>{% endif %}
                 </label>
                 {{ field }}
                 {% if field.help_text %}
-                <p class="mt-1 text-sm text-gray-500">{{ field.help_text }}</p>
+                <p class="mt-1 text-sm text-[var(--text-muted)]">{{ field.help_text }}</p>
                 {% endif %}
                 {% if field.errors %}
                 <p class="mt-1 text-sm text-red-600">{{ field.errors|join:", " }}</p>

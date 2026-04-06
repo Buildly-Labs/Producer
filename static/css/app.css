@@ -523,6 +523,61 @@ body {
   background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3ccircle cx='8' cy='8' r='3'/%3e%3c/svg%3e");
 }
 
+/* ── Global dark-theme overrides for Django form widgets & Tailwind bg-white ── */
+/* Catches all <input>, <select>, <textarea> rendered by Django {{ field }} */
+input[type="text"],
+input[type="email"],
+input[type="url"],
+input[type="password"],
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"],
+input[type="tel"],
+input[type="search"],
+select,
+textarea {
+  color: var(--text-primary) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  border-radius: var(--radius-md);
+}
+
+input[type="text"]::placeholder,
+input[type="email"]::placeholder,
+input[type="url"]::placeholder,
+input[type="password"]::placeholder,
+textarea::placeholder {
+  color: var(--text-disabled) !important;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="url"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.2);
+  outline: none;
+}
+
+/* Override Tailwind bg-white on form containers in dark theme */
+.bg-white {
+  background-color: var(--bg-surface) !important;
+}
+
+/* Override Tailwind light text colors in dark theme */
+.text-gray-900 { color: var(--text-primary) !important; }
+.text-gray-700 { color: var(--text-secondary) !important; }
+.text-gray-600 { color: var(--text-secondary) !important; }
+.text-gray-500 { color: var(--text-muted) !important; }
+.border-gray-200 { border-color: var(--border-default) !important; }
+.border-gray-300 { border-color: var(--border-default) !important; }
+.bg-gray-50 { background-color: var(--bg-hover) !important; }
+.hover\:bg-gray-50:hover { background-color: var(--bg-hover) !important; }
+
 /* Tables */
 .table-container {
   overflow-x: auto;
@@ -985,7 +1040,7 @@ body {
 }
 
 .sidebar-logo img {
-  height: 36px;
+  height: 72px;
   width: auto;
 }
 
@@ -1055,6 +1110,12 @@ body {
   font-weight: 600;
   padding: 0.125rem 0.5rem;
   border-radius: 9999px;
+}
+
+.nav-item-disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
 }
 
 .sidebar-footer {
