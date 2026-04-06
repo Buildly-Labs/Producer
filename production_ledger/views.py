@@ -223,10 +223,10 @@ class DashboardView(LoginRequiredMixin, OrganizationMixin, TemplateView):
         # Upcoming episodes (scheduled recording date in the future)
         context['upcoming_episodes'] = Episode.objects.filter(
             organization_uuid=org_uuid,
-            recording_date__gte=timezone.now().date()
+            scheduled_for__gte=timezone.now()
         ).exclude(
             status=EpisodeStatus.PUBLISHED
-        ).select_related('show').order_by('recording_date')[:5]
+        ).select_related('show').order_by('scheduled_for')[:5]
         
         # Legacy context for old template
         context['shows'] = Show.objects.filter(

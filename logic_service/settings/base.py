@@ -215,10 +215,10 @@ SEARCH_SERVICE_ENABLED = True if os.getenv('SEARCH_SERVICE_ENABLED') == 'True' e
 
 
 # Authentication
-# Use a named URL so FORCE_SCRIPT_NAME is respected automatically.
+# Use named URLs so FORCE_SCRIPT_NAME is respected automatically.
 LOGIN_URL = 'production_ledger:login'
-LOGIN_REDIRECT_URL = '/ledger/'
-LOGOUT_REDIRECT_URL = '/'
+LOGIN_REDIRECT_URL = 'production_ledger:dashboard'
+LOGOUT_REDIRECT_URL = 'production_ledger:login'
 
 AUTHENTICATION_BACKENDS = [
     'logic.backends.EmailOrUsernameBackend',
