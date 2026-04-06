@@ -78,23 +78,44 @@ class Command(BaseCommand):
         self.stdout.write('Sample data creation completed.')
 
     def _ensure_admin_user(self):
-        """Create a default admin user if none exists.
+        """Create or update the default admin user.
 
         Credentials come from PRODUCER_ADMIN_EMAIL / PRODUCER_ADMIN_PASSWORD
         env-vars and fall back to admin@example.com / changeme123.
         The user is flagged as a superuser so they can access the Django admin.
+        If the env-var credentials differ from the existing superuser, the
+        existing account is updated to match.
         """
         import os
         from django.contrib.auth import get_user_model
         User = get_user_model()
-        if User.objects.filter(is_superuser=True).exists():
-            self.stdout.write('Admin user already exists.')
-            return
         email = os.getenv('PRODUCER_ADMIN_EMAIL', 'admin@example.com')
         password = os.getenv('PRODUCER_ADMIN_PASSWORD', 'changeme123')
+        username = email.split('@')[0]
+
+        # Try to find an existing superuser with matching email or username
+        user = User.objects.filter(is_superuser=True).first()
+        if user:
+            changed = False
+            if user.email != email:
+                user.email = email
+                changed = True
+            if user.username != username:
+                user.username = username
+                changed = True
+            # Always reset password to env-var value so deploy stays in sync
+            user.set_password(password)
+            changed = True
+            if changed:
+                user.save()
+                self.stdout.write(self.style.SUCCESS(f'Updated admin user: {username} ({email})'))
+            else:
+                self.stdout.write('Admin user already exists and matches.')
+            return
+
         User.objects.create_superuser(
-            username=email.split('@')[0],
+            username=username,
             email=email,
             password=password,
         )
-        self.stdout.write(self.style.SUCCESS(f'Created default admin user: {email}'))
+        self.stdout.write(self.style.SUCCESS(f'Created admin user: {username} ({email})'))

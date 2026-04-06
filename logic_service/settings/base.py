@@ -220,6 +220,11 @@ LOGIN_URL = 'production_ledger:login'
 LOGIN_REDIRECT_URL = '/ledger/'
 LOGOUT_REDIRECT_URL = '/'
 
+AUTHENTICATION_BACKENDS = [
+    'logic.backends.EmailOrUsernameBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 
 # for local development
 try:
