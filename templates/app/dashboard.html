@@ -52,7 +52,7 @@
                 <p class="stat-card-label">Total Episodes</p>
                 <p class="stat-card-value">{{ episode_count|default:"0" }}</p>
             </div>
-            <a href="{% url 'production_ledger:episode_list' %}" class="stat-card-link">
+            <a href="{% url 'production_ledger:show_list' %}" class="stat-card-link">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                 </svg>
@@ -98,7 +98,7 @@
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title">Recent Episodes</h2>
-                    <a href="{% url 'production_ledger:episode_list' %}" class="text-sm text-[var(--accent-primary)] hover:underline">
+                    <a href="{% url 'production_ledger:show_list' %}" class="text-sm text-[var(--accent-primary)] hover:underline">
                         View all →
                     </a>
                 </div>
