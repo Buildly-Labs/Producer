@@ -20,6 +20,15 @@ urlpatterns = [
     # Dashboard
     path('', views.DashboardView.as_view(), name='dashboard'),
     
+    # Content list views
+    path('transcripts/', views.TranscriptListView.as_view(), name='transcript_list'),
+    path('assets/', views.MediaAssetListView.as_view(), name='asset_list'),
+    path('ai-tools/', views.AIToolsView.as_view(), name='ai_tools'),
+    
+    # System pages
+    path('integrations/', views.IntegrationsView.as_view(), name='integrations'),
+    path('settings/', views.SettingsView.as_view(), name='settings'),
+    
     # Shows
     path('shows/', views.ShowListView.as_view(), name='show_list'),
     path('shows/create/', views.ShowCreateView.as_view(), name='show_create'),

@@ -1,0 +1,92 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Settings - ProducerForge{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <div>
+        <h1 class="text-2xl font-bold text-[var(--text-primary)]">Settings</h1>
+        <p class="text-[var(--text-secondary)] mt-1">Manage your organization settings and preferences.</p>
+    </div>
+
+    <!-- Overview Stats -->
+    <div class="card p-6">
+        <h2 class="text-lg font-semibold text-[var(--text-primary)] mb-4">Organization Overview</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div class="text-center">
+                <p class="text-2xl font-bold text-[var(--accent-primary)]">{{ show_count }}</p>
+                <p class="text-sm text-[var(--text-muted)]">Shows</p>
+            </div>
+            <div class="text-center">
+                <p class="text-2xl font-bold text-[var(--accent-primary)]">{{ episode_count }}</p>
+                <p class="text-sm text-[var(--text-muted)]">Episodes</p>
+            </div>
+            <div class="text-center">
+                <p class="text-2xl font-bold text-[var(--accent-primary)]">{{ guest_count }}</p>
+                <p class="text-sm text-[var(--text-muted)]">Guests</p>
+            </div>
+            <div class="text-center">
+                <p class="text-2xl font-bold text-[var(--accent-primary)]">{{ transcript_count }}</p>
+                <p class="text-sm text-[var(--text-muted)]">Transcripts</p>
+            </div>
+            <div class="text-center">
+                <p class="text-2xl font-bold text-[var(--accent-primary)]">{{ asset_count }}</p>
+                <p class="text-sm text-[var(--text-muted)]">Assets</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Episode Types -->
+    <div class="card p-6">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold text-[var(--text-primary)]">Episode Types</h2>
+        </div>
+        <div class="space-y-3">
+            {% for etype in episode_types %}
+            <div class="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-tertiary)]">
+                <div class="w-4 h-4 rounded-full flex-shrink-0" style="background-color: {{ etype.color }}"></div>
+                {% if etype.icon %}
+                <span class="text-lg">{{ etype.icon }}</span>
+                {% endif %}
+                <div class="flex-1 min-w-0">
+                    <p class="font-medium text-[var(--text-primary)]">{{ etype.name }}</p>
+                    {% if etype.description %}
+                    <p class="text-sm text-[var(--text-muted)] truncate">{{ etype.description }}</p>
+                    {% endif %}
+                </div>
+                {% if not etype.is_active %}
+                <span class="badge badge-warning">Inactive</span>
+                {% endif %}
+            </div>
+            {% empty %}
+            <p class="text-sm text-[var(--text-muted)]">No episode types configured.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Account -->
+    <div class="card p-6">
+        <h2 class="text-lg font-semibold text-[var(--text-primary)] mb-4">Account</h2>
+        <div class="space-y-4">
+            <div class="flex items-center justify-between py-3 border-b border-[var(--border-primary)]">
+                <div>
+                    <p class="font-medium text-[var(--text-primary)]">Username</p>
+                    <p class="text-sm text-[var(--text-secondary)]">{{ user.username }}</p>
+                </div>
+            </div>
+            <div class="flex items-center justify-between py-3 border-b border-[var(--border-primary)]">
+                <div>
+                    <p class="font-medium text-[var(--text-primary)]">Email</p>
+                    <p class="text-sm text-[var(--text-secondary)]">{{ user.email|default:"Not set" }}</p>
+                </div>
+            </div>
+            <div class="flex items-center justify-between py-3">
+                <div>
+                    <p class="font-medium text-[var(--text-primary)]">Member Since</p>
+                    <p class="text-sm text-[var(--text-secondary)]">{{ user.date_joined|date:"F j, Y" }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

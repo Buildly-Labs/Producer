@@ -1,0 +1,55 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Integrations - ProducerForge{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl font-bold text-[var(--text-primary)]">Integrations</h1>
+        <p class="text-[var(--text-secondary)] mt-1">Connect external platforms to streamline your workflow.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for integration in integrations %}
+        <div class="card p-6 flex flex-col gap-4">
+            <div class="flex items-center gap-3">
+                <span class="text-3xl">{{ integration.icon }}</span>
+                <div class="flex-1">
+                    <h3 class="text-lg font-semibold text-[var(--text-primary)]">{{ integration.name }}</h3>
+                </div>
+                {% if integration.status == 'coming_soon' %}
+                <span class="badge badge-info">Coming Soon</span>
+                {% elif integration.status == 'connected' %}
+                <span class="badge badge-success">Connected</span>
+                {% else %}
+                <span class="badge badge-warning">Disconnected</span>
+                {% endif %}
+            </div>
+            <p class="text-sm text-[var(--text-secondary)] flex-1">{{ integration.description }}</p>
+            <div>
+                {% if integration.status == 'coming_soon' %}
+                <button disabled class="btn btn-secondary w-full opacity-50 cursor-not-allowed">
+                    Connect
+                </button>
+                {% elif integration.status == 'connected' %}
+                <button class="btn btn-secondary w-full">
+                    Manage
+                </button>
+                {% else %}
+                <button class="btn btn-primary w-full">
+                    Connect
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="card p-6">
+        <h2 class="text-lg font-semibold text-[var(--text-primary)] mb-2">Need another integration?</h2>
+        <p class="text-sm text-[var(--text-secondary)]">
+            We're actively building new integrations. If you need a specific platform, let us know and we'll prioritize it.
+        </p>
+    </div>
+</div>
+{% endblock %}

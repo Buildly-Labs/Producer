@@ -1366,3 +1366,109 @@ class ExportFullPackageView(ExportMixin, View):
 
 # Need to import models for the aggregate function
 from django.db import models
+
+
+# =============================================================================
+# CONTENT LIST VIEWS
+# =============================================================================
+
+class TranscriptListView(LoginRequiredMixin, OrganizationMixin, ListView):
+    """List all transcripts across episodes."""
+    model = Transcript
+    template_name = 'production_ledger/transcript_list.html'
+    context_object_name = 'transcripts'
+
+    def get_queryset(self):
+        return Transcript.objects.filter(
+            organization_uuid=self.get_organization_uuid()
+        ).select_related('episode', 'episode__show').order_by('-created_at')
+
+
+class MediaAssetListView(LoginRequiredMixin, OrganizationMixin, ListView):
+    """List all media assets across episodes."""
+    model = MediaAsset
+    template_name = 'production_ledger/asset_list.html'
+    context_object_name = 'assets'
+
+    def get_queryset(self):
+        return MediaAsset.objects.filter(
+            organization_uuid=self.get_organization_uuid()
+        ).select_related('episode', 'episode__show').order_by('-created_at')
+
+
+class AIToolsView(LoginRequiredMixin, OrganizationMixin, ListView):
+    """List all AI artifacts across episodes."""
+    model = AIArtifact
+    template_name = 'production_ledger/ai_tools.html'
+    context_object_name = 'artifacts'
+
+    def get_queryset(self):
+        return AIArtifact.objects.filter(
+            organization_uuid=self.get_organization_uuid()
+        ).select_related('episode', 'episode__show').order_by('-created_at')
+
+
+class IntegrationsView(LoginRequiredMixin, OrganizationMixin, TemplateView):
+    """Show available integrations and connection status."""
+    template_name = 'production_ledger/integrations.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['integrations'] = [
+            {
+                'name': 'Riverside.fm',
+                'description': 'Import recordings automatically from Riverside.fm sessions.',
+                'icon': '🎙️',
+                'status': 'coming_soon',
+            },
+            {
+                'name': 'Zoom',
+                'description': 'Sync cloud recordings from your Zoom meetings.',
+                'icon': '📹',
+                'status': 'coming_soon',
+            },
+            {
+                'name': 'Google Meet',
+                'description': 'Import recordings from Google Meet via Google Drive.',
+                'icon': '📞',
+                'status': 'coming_soon',
+            },
+            {
+                'name': 'YouTube',
+                'description': 'Publish episodes directly to your YouTube channel.',
+                'icon': '▶️',
+                'status': 'coming_soon',
+            },
+            {
+                'name': 'Spotify for Podcasters',
+                'description': 'Submit and manage your podcast on Spotify.',
+                'icon': '🎵',
+                'status': 'coming_soon',
+            },
+            {
+                'name': 'Apple Podcasts',
+                'description': 'Manage your Apple Podcasts listing and episodes.',
+                'icon': '🍎',
+                'status': 'coming_soon',
+            },
+        ]
+        return context
+
+
+class SettingsView(LoginRequiredMixin, OrganizationMixin, TemplateView):
+    """Organization settings and configuration."""
+    template_name = 'production_ledger/settings.html'
+
+    def get_context_data(self, **kwargs):
+        from .models import EpisodeType
+        context = super().get_context_data(**kwargs)
+        org_uuid = self.get_organization_uuid()
+        context['episode_types'] = EpisodeType.objects.filter(
+            models.Q(organization_uuid=org_uuid) | models.Q(organization_uuid__isnull=True)
+        ).order_by('sort_order')
+        context['show_count'] = Show.objects.filter(organization_uuid=org_uuid).count()
+        context['episode_count'] = Episode.objects.filter(organization_uuid=org_uuid).count()
+        context['guest_count'] = Guest.objects.filter(organization_uuid=org_uuid).count()
+        context['transcript_count'] = Transcript.objects.filter(organization_uuid=org_uuid).count()
+        context['asset_count'] = MediaAsset.objects.filter(organization_uuid=org_uuid).count()
+        return context
