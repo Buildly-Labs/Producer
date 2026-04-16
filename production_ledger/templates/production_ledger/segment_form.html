@@ -1,0 +1,98 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Edit Segment - Production Ledger{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="bg-white shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h1 class="text-xl font-medium text-gray-900">Edit Segment</h1>
+            <p class="mt-1 text-sm text-gray-500">
+                {{ object.episode.title }}
+            </p>
+        </div>
+
+        <form method="post" class="px-6 py-4 space-y-6">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+            <div class="rounded-md bg-red-50 p-4">
+                {% for error in form.non_field_errors %}
+                <p class="text-sm text-red-700">{{ error }}</p>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="{{ form.order.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                        {{ form.order.label }}
+                    </label>
+                    {{ form.order }}
+                    {% if form.order.errors %}<p class="mt-1 text-sm text-red-600">{{ form.order.errors|join:", " }}</p>{% endif %}
+                </div>
+                <div>
+                    <label for="{{ form.timebox_minutes.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                        {{ form.timebox_minutes.label }}
+                    </label>
+                    {{ form.timebox_minutes }}
+                    {% if form.timebox_minutes.errors %}<p class="mt-1 text-sm text-red-600">{{ form.timebox_minutes.errors|join:", " }}</p>{% endif %}
+                </div>
+            </div>
+
+            <div>
+                <label for="{{ form.title.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                    {{ form.title.label }} <span class="text-red-500">*</span>
+                </label>
+                {{ form.title }}
+                {% if form.title.errors %}<p class="mt-1 text-sm text-red-600">{{ form.title.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.owner_role.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                    {{ form.owner_role.label }}
+                </label>
+                {{ form.owner_role }}
+                {% if form.owner_role.errors %}<p class="mt-1 text-sm text-red-600">{{ form.owner_role.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.purpose.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                    {{ form.purpose.label }}
+                </label>
+                {{ form.purpose }}
+                {% if form.purpose.errors %}<p class="mt-1 text-sm text-red-600">{{ form.purpose.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.bullet_prompts.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                    {{ form.bullet_prompts.label }}
+                </label>
+                {{ form.bullet_prompts }}
+                {% if form.bullet_prompts.help_text %}<p class="mt-1 text-sm text-gray-500">{{ form.bullet_prompts.help_text }}</p>{% endif %}
+                {% if form.bullet_prompts.errors %}<p class="mt-1 text-sm text-red-600">{{ form.bullet_prompts.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.key_questions.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                    {{ form.key_questions.label }}
+                </label>
+                {{ form.key_questions }}
+                {% if form.key_questions.help_text %}<p class="mt-1 text-sm text-gray-500">{{ form.key_questions.help_text }}</p>{% endif %}
+                {% if form.key_questions.errors %}<p class="mt-1 text-sm text-red-600">{{ form.key_questions.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div class="flex items-center justify-between pt-4 border-t border-gray-200">
+                <a href="{% url 'production_ledger:episode_segments' pk=object.episode.pk %}"
+                   class="text-sm text-gray-600 hover:text-gray-900">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
