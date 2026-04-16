@@ -645,3 +645,21 @@ class ShowRoleAssignmentForm(TailwindFormMixin, forms.ModelForm):
     class Meta:
         model = ShowRoleAssignment
         fields = ['user', 'role']
+
+
+# =============================================================================
+# ACCESS REQUEST & INVITATION FORMS
+# =============================================================================
+
+class AccessRequestForm(TailwindFormMixin, forms.ModelForm):
+    class Meta:
+        from .models import AccessRequest
+        model = AccessRequest
+        fields = ['name', 'email', 'organization', 'message']
+
+
+class InvitationForm(TailwindFormMixin, forms.ModelForm):
+    class Meta:
+        from .models import Invitation
+        model = Invitation
+        fields = ['email', 'name', 'role']

@@ -192,6 +192,15 @@ class DashboardView(LoginRequiredMixin, OrganizationMixin, TemplateView):
     """Main dashboard showing shows and recent episodes."""
     
     template_name = 'production_ledger/dashboard.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not request.user.is_superuser:
+            has_non_guest_role = ShowRoleAssignment.objects.filter(
+                user=request.user
+            ).exclude(role='guest').exists()
+            if not has_non_guest_role:
+                return redirect('production_ledger:guest_portal')
+        return super().dispatch(request, *args, **kwargs)
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1472,3 +1481,242 @@ class SettingsView(LoginRequiredMixin, OrganizationMixin, TemplateView):
         context['transcript_count'] = Transcript.objects.filter(organization_uuid=org_uuid).count()
         context['asset_count'] = MediaAsset.objects.filter(organization_uuid=org_uuid).count()
         return context
+
+
+# =============================================================================
+# REQUEST ACCESS (PUBLIC)
+# =============================================================================
+
+class RequestAccessView(TemplateView):
+    """Public page for requesting access to the platform."""
+    template_name = 'production_ledger/request_access.html'
+
+    def post(self, request, *args, **kwargs):
+        from .forms import AccessRequestForm
+        form = AccessRequestForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return self.render_to_response(self.get_context_data(
+                submitted=True,
+                submitted_email=form.cleaned_data['email'],
+            ))
+        return self.render_to_response(self.get_context_data(form=form))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if 'form' not in context and not context.get('submitted'):
+            from .forms import AccessRequestForm
+            context['form'] = AccessRequestForm()
+        return context
+
+
+# =============================================================================
+# ACCEPT INVITATION (PUBLIC)
+# =============================================================================
+
+class AcceptInviteView(TemplateView):
+    """Accept an invitation and set a password."""
+    template_name = 'production_ledger/accept_invite.html'
+
+    def _get_invitation(self):
+        from .models import Invitation
+        token = self.kwargs.get('token', '')
+        try:
+            return Invitation.objects.get(token=token)
+        except Invitation.DoesNotExist:
+            return None
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        invitation = self._get_invitation()
+        if not invitation:
+            context['error'] = 'This invitation link is invalid or has expired.'
+        elif invitation.is_accepted:
+            context['error'] = 'This invitation has already been used. Please sign in.'
+        else:
+            context['invitation'] = invitation
+        return context
+
+    def post(self, request, *args, **kwargs):
+        from django.contrib.auth.models import User
+        from django.utils import timezone as tz
+        invitation = self._get_invitation()
+        if not invitation or invitation.is_accepted:
+            return self.render_to_response(self.get_context_data())
+
+        password = request.POST.get('password', '')
+        password2 = request.POST.get('password2', '')
+        first_name = request.POST.get('first_name', '').strip()[:30]
+
+        if len(password) < 8:
+            return self.render_to_response(self.get_context_data(
+                form_errors='Password must be at least 8 characters.',
+            ))
+        if password != password2:
+            return self.render_to_response(self.get_context_data(
+                form_errors='Passwords do not match.',
+            ))
+
+        email = invitation.email.lower().strip()
+        username = email.split('@')[0][:150]
+        # Ensure unique username
+        base = username
+        n = 1
+        while User.objects.filter(username=username).exists():
+            username = f'{base}{n}'
+            n += 1
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=first_name or (invitation.name or '').split()[0][:30],
+        )
+        invitation.accepted_at = tz.now()
+        invitation.save()
+
+        # Log the user in
+        from django.contrib.auth import login
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+        messages.success(request, 'Welcome to ProducerForge!')
+
+        # Redirect based on role
+        if invitation.role == 'guest':
+            return redirect('production_ledger:guest_portal')
+        return redirect('production_ledger:dashboard')
+
+
+# =============================================================================
+# GUEST PORTAL
+# =============================================================================
+
+class GuestPortalView(LoginRequiredMixin, TemplateView):
+    """
+    Simplified dashboard for podcast guests.
+    Shows only episodes the user is linked to.
+    """
+    template_name = 'production_ledger/guest_portal.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+
+        # Find episodes where this user is a guest via EpisodeGuest → Guest → email match
+        guest_records = Guest.objects.filter(email=user.email)
+        episode_ids = EpisodeGuest.objects.filter(
+            guest__in=guest_records
+        ).values_list('episode_id', flat=True)
+
+        # Also include episodes from shows where user has GUEST role
+        guest_show_ids = ShowRoleAssignment.objects.filter(
+            user=user, role='guest'
+        ).values_list('show_id', flat=True)
+
+        context['episodes'] = Episode.objects.filter(
+            models.Q(id__in=episode_ids) | models.Q(show_id__in=guest_show_ids)
+        ).select_related('show').distinct().order_by('-updated_at')
+        return context
+
+
+# =============================================================================
+# ADMIN – USER MANAGEMENT
+# =============================================================================
+
+class UserManagementView(LoginRequiredMixin, TemplateView):
+    """Admin view for managing users, invitations, and access requests."""
+    template_name = 'production_ledger/user_management.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only admins can manage users.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        from django.contrib.auth.models import User
+        from .models import AccessRequest, Invitation
+        context = super().get_context_data(**kwargs)
+        context['users'] = User.objects.all().order_by('-date_joined')
+        context['invitations'] = Invitation.objects.all()
+        context['access_requests'] = AccessRequest.objects.all()
+        context['pending_requests'] = AccessRequest.objects.filter(status='pending')
+        context['active_tab'] = self.request.GET.get('tab', 'users')
+        return context
+
+
+class InviteUserView(LoginRequiredMixin, TemplateView):
+    """Admin view to send an invitation."""
+    template_name = 'production_ledger/invite_user.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only admins can invite users.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        from .forms import InvitationForm
+        from .constants import Role
+        context = super().get_context_data(**kwargs)
+        if 'form' not in context:
+            context['form'] = InvitationForm()
+        context['role_choices'] = Role.CHOICES
+        return context
+
+    def post(self, request, *args, **kwargs):
+        from .forms import InvitationForm
+        form = InvitationForm(request.POST)
+        if form.is_valid():
+            invitation = form.save(commit=False)
+            invitation.invited_by = request.user
+            invitation.save()
+            invite_link = request.build_absolute_uri(
+                reverse('production_ledger:accept_invite', kwargs={'token': invitation.token})
+            )
+            messages.success(request, f'Invitation sent to {invitation.email}')
+            return self.render_to_response(self.get_context_data(
+                form=InvitationForm(),
+                invite_link=invite_link,
+            ))
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+class ReviewAccessRequestView(LoginRequiredMixin, View):
+    """Admin action to approve or decline an access request."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only admins can review access requests.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        from .models import AccessRequest, Invitation
+        from django.utils import timezone as tz
+        ar = get_object_or_404(AccessRequest, pk=kwargs['pk'])
+        action = request.POST.get('action')
+
+        if action == 'approve':
+            ar.status = 'approved'
+            ar.reviewed_by = request.user
+            ar.reviewed_at = tz.now()
+            ar.save()
+            # Auto-create an invitation
+            invitation = Invitation.objects.create(
+                email=ar.email,
+                name=ar.name,
+                role='guest',
+                invited_by=request.user,
+            )
+            invite_link = request.build_absolute_uri(
+                reverse('production_ledger:accept_invite', kwargs={'token': invitation.token})
+            )
+            messages.success(
+                request,
+                f'Approved {ar.name}. Invite link: {invite_link}'
+            )
+        elif action == 'decline':
+            ar.status = 'declined'
+            ar.reviewed_by = request.user
+            ar.reviewed_at = tz.now()
+            ar.save()
+            messages.info(request, f'Declined request from {ar.name}.')
+
+        return redirect(reverse('production_ledger:user_management') + '?tab=requests')

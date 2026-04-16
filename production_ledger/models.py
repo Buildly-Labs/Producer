@@ -982,3 +982,85 @@ class ExportRecord(BaseModel):
 
     def __str__(self):
         return f"{self.export_type} export for {self.episode.title}"
+
+
+# =============================================================================
+# ACCESS REQUEST
+# =============================================================================
+
+class AccessRequest(models.Model):
+    """
+    Track requests from people who want access to the platform.
+    Admin reviews and either creates an account or ignores.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200)
+    email = models.EmailField()
+    organization = models.CharField(max_length=200, blank=True, default='')
+    message = models.TextField(blank=True, default='')
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('declined', 'Declined'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='reviewed_access_requests',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Access Request"
+        verbose_name_plural = "Access Requests"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} <{self.email}> — {self.status}"
+
+
+# =============================================================================
+# INVITATION
+# =============================================================================
+
+class Invitation(models.Model):
+    """
+    Admin-created invitation to join the platform.
+    Stores a unique token that the invitee uses to set their password.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField()
+    name = models.CharField(max_length=200, blank=True, default='')
+    role = models.CharField(max_length=20, choices=Role.CHOICES, default=Role.GUEST)
+    token = models.CharField(max_length=64, unique=True, editable=False)
+
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='sent_invitations',
+    )
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Invitation"
+        verbose_name_plural = "Invitations"
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import secrets
+            self.token = secrets.token_urlsafe(48)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_accepted(self):
+        return self.accepted_at is not None
+
+    def __str__(self):
+        return f"Invite for {self.email} ({self.get_role_display()})"

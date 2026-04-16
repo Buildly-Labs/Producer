@@ -14,11 +14,20 @@ urlpatterns = [
     # Authentication (namespaced so templates can use production_ledger:login)
     path('auth/login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
     path('auth/logout/', auth_views.LogoutView.as_view(), name='logout'),
-    # register currently redirects to login (no self-registration yet)
-    path('auth/register/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='register'),
+    # register replaced with request-access flow
+    path('request-access/', views.RequestAccessView.as_view(), name='request_access'),
+    path('invite/<str:token>/', views.AcceptInviteView.as_view(), name='accept_invite'),
 
     # Dashboard
     path('', views.DashboardView.as_view(), name='dashboard'),
+
+    # Guest portal
+    path('guest/', views.GuestPortalView.as_view(), name='guest_portal'),
+
+    # Admin user management
+    path('users/', views.UserManagementView.as_view(), name='user_management'),
+    path('users/invite/', views.InviteUserView.as_view(), name='invite_user'),
+    path('users/request/<uuid:pk>/review/', views.ReviewAccessRequestView.as_view(), name='review_access_request'),
     
     # Content list views
     path('transcripts/', views.TranscriptListView.as_view(), name='transcript_list'),

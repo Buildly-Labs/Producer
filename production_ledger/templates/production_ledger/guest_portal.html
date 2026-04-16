@@ -1,0 +1,58 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Guest Portal — ProducerForge{% endblock %}
+
+{% block content %}
+<div class="px-4 sm:px-6 lg:px-8 py-8 max-w-5xl mx-auto">
+    <div class="mb-8">
+        <h1 class="text-2xl font-bold">Welcome, {{ request.user.first_name|default:request.user.username }}</h1>
+        <p class="text-[var(--text-secondary)] mt-1">Here are the episodes you're part of.</p>
+    </div>
+
+    {% if episodes %}
+    <div class="grid gap-4">
+        {% for ep in episodes %}
+        <div class="card hover:border-[var(--accent-primary)]/50 transition-colors">
+            <div class="card-body">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-warm)] flex items-center justify-center text-white font-bold text-sm shrink-0">
+                        EP
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h3 class="font-semibold truncate">
+                            <a href="{% url 'production_ledger:episode_detail' pk=ep.pk %}" class="hover:text-[var(--accent-primary)]">
+                                {{ ep.title }}
+                            </a>
+                        </h3>
+                        <p class="text-sm text-[var(--text-muted)]">
+                            {{ ep.show.name }} &middot;
+                            {% if ep.scheduled_for %}Recording: {{ ep.scheduled_for|date:"M d, Y" }}{% else %}{{ ep.get_status_display }}{% endif %}
+                        </p>
+                    </div>
+                    <span class="badge badge-{% if ep.status == 'published' %}success{% elif ep.status == 'draft' %}default{% elif ep.status == 'scheduled' %}warning{% else %}info{% endif %}">
+                        {{ ep.get_status_display }}
+                    </span>
+                </div>
+
+                {% if ep.guest_notes %}
+                <div class="mt-3 pt-3 border-t border-[var(--border-subtle)]">
+                    <p class="text-sm text-[var(--text-secondary)]">{{ ep.guest_notes }}</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card-body text-center py-12">
+            <svg class="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+            </svg>
+            <h3 class="font-semibold mb-1">No episodes yet</h3>
+            <p class="text-sm text-[var(--text-muted)]">You'll see episodes here once a producer adds you as a guest.</p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

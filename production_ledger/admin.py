@@ -5,6 +5,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from .models import (
+    AccessRequest,
     AIArtifact,
     ChecklistItem,
     ClipMoment,
@@ -14,6 +15,7 @@ from .models import (
     EpisodeType,
     ExportRecord,
     Guest,
+    Invitation,
     MediaAsset,
     Segment,
     Show,
@@ -401,3 +403,23 @@ class ExportRecordAdmin(BaseModelAdmin):
     list_filter = ('export_type', 'organization_uuid')
     search_fields = ('filename', 'episode__title')
     autocomplete_fields = ['episode']
+
+
+# =============================================================================
+# ACCESS REQUESTS & INVITATIONS
+# =============================================================================
+
+@admin.register(AccessRequest)
+class AccessRequestAdmin(admin.ModelAdmin):
+    list_display = ('name', 'email', 'status', 'created_at', 'reviewed_by')
+    list_filter = ('status',)
+    search_fields = ('name', 'email')
+    readonly_fields = ('id', 'created_at')
+
+
+@admin.register(Invitation)
+class InvitationAdmin(admin.ModelAdmin):
+    list_display = ('email', 'name', 'role', 'invited_by', 'accepted_at', 'created_at')
+    list_filter = ('role',)
+    search_fields = ('email', 'name')
+    readonly_fields = ('id', 'token', 'created_at')

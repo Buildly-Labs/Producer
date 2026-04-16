@@ -67,7 +67,8 @@ SESSION_SAVE_EVERY_REQUEST = True  # Refresh expiry on activity
 # Gateway SSO — auto-login from Flask gateway's signed cookie
 AUTHENTICATION_BACKENDS = [
     'production_ledger.gateway_auth.GatewayTokenBackend',
-    'django.contrib.auth.backends.ModelBackend',  # keep normal Django login
+    'logic.backends.EmailOrUsernameBackend',
+    'django.contrib.auth.backends.ModelBackend',
 ]
 MIDDLEWARE.insert(
     MIDDLEWARE.index('django.contrib.auth.middleware.AuthenticationMiddleware') + 1,
