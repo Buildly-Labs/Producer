@@ -80,8 +80,11 @@ class Command(BaseCommand):
     def _ensure_admin_user(self):
         """Create or update the default admin user.
 
-        Credentials come from PRODUCER_ADMIN_EMAIL / PRODUCER_ADMIN_PASSWORD
-        env-vars and fall back to admin@example.com / changeme123.
+        Credentials are resolved in order:
+          1. PRODUCER_ADMIN_EMAIL / PRODUCER_ADMIN_PASSWORD  (app-specific)
+          2. ADMIN_EMAIL / ADMIN_PASSWORD                    (shared across apps)
+          3. admin@example.com / changeme123                 (fallback)
+
         The user is flagged as a superuser so they can access the Django admin.
         If the env-var credentials differ from the existing superuser, the
         existing account is updated to match.
@@ -89,8 +92,12 @@ class Command(BaseCommand):
         import os
         from django.contrib.auth import get_user_model
         User = get_user_model()
-        email = os.getenv('PRODUCER_ADMIN_EMAIL', 'admin@example.com')
-        password = os.getenv('PRODUCER_ADMIN_PASSWORD', 'changeme123')
+        email = (os.getenv('PRODUCER_ADMIN_EMAIL')
+                 or os.getenv('ADMIN_EMAIL')
+                 or 'admin@example.com')
+        password = (os.getenv('PRODUCER_ADMIN_PASSWORD')
+                    or os.getenv('ADMIN_PASSWORD')
+                    or 'changeme123')
         username = email.split('@')[0]
 
         # Try to find an existing superuser with matching email or username
