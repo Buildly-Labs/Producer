@@ -26,7 +26,7 @@
                 Edit Show
             </a>
             {% endif %}
-            <a href="{% url 'production_ledger:episode_create' show.pk %}" 
+            <a href="{% url 'production_ledger:episode_create_for_show' show_id=show.pk %}" 
                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
                 + New Episode
             </a>
@@ -86,7 +86,7 @@
                 {% empty %}
                 <tr>
                     <td colspan="5" class="px-6 py-12 text-center text-gray-500">
-                        No episodes yet. <a href="{% url 'production_ledger:episode_create' show.pk %}" class="text-blue-600 hover:text-blue-800">Create one →</a>
+                        No episodes yet. <a href="{% url 'production_ledger:episode_create_for_show' show_id=show.pk %}" class="text-blue-600 hover:text-blue-800">Create one →</a>
                     </td>
                 </tr>
                 {% endfor %}
