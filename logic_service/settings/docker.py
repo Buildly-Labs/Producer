@@ -47,9 +47,14 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-4w$$of)udb)qv8=vs^5
 # SECURITY WARNING: define the correct hosts in production!
 ALLOWED_HOSTS = ['*']
 
-# Allow CSRF POST from the DO app domain (HTTPS)
+# Allow CSRF POST from the DO app domain and custom domains (HTTPS)
 CSRF_TRUSTED_ORIGINS = [
-    origin for origin in [os.getenv('CSRF_TRUSTED_ORIGIN', 'https://*.ondigitalocean.app')]
+    origin.strip()
+    for origin in os.getenv(
+        'CSRF_TRUSTED_ORIGINS',
+        'https://*.ondigitalocean.app,https://market.firstcityfoundry.com'
+    ).split(',')
+    if origin.strip()
 ]
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
@@ -58,6 +63,17 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 14  # 14 days
 SESSION_SAVE_EVERY_REQUEST = True  # Refresh expiry on activity
+
+# Gateway SSO — auto-login from Flask gateway's signed cookie
+AUTHENTICATION_BACKENDS = [
+    'production_ledger.gateway_auth.GatewayTokenBackend',
+    'django.contrib.auth.backends.ModelBackend',  # keep normal Django login
+]
+MIDDLEWARE.insert(
+    MIDDLEWARE.index('django.contrib.auth.middleware.AuthenticationMiddleware') + 1,
+    'production_ledger.gateway_auth.GatewaySSOMiddleware',
+)
+LOGIN_URL = '/'  # redirect to gateway login instead of Django's own
 
 # Only add debug toolbar and other dev-only apps when not in Docker
 if not os.getenv('RUNNING_IN_DOCKER'):
