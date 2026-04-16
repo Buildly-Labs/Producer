@@ -4,7 +4,7 @@
 <div class="space-y-6">
     <div class="flex justify-between items-center">
         <h3 class="text-lg font-medium text-gray-900">Clip Moments</h3>
-        <span class="text-sm text-gray-500">{{ clip_moments|length }} clips marked</span>
+        <span class="text-sm text-gray-500">{{ clips|length }} clips marked</span>
     </div>
 
     <!-- Add Clip Form -->
@@ -15,12 +15,12 @@
             {% csrf_token %}
             <div class="grid grid-cols-3 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">Start Time (seconds)</label>
-                    {{ clip_form.start_seconds }}
+                    <label class="block text-sm font-medium text-gray-700">Start Time (HH:MM:SS)</label>
+                    {{ clip_form.start_time }}
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">End Time (seconds)</label>
-                    {{ clip_form.end_seconds }}
+                    <label class="block text-sm font-medium text-gray-700">End Time (HH:MM:SS)</label>
+                    {{ clip_form.end_time }}
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700">Priority</label>
@@ -32,8 +32,8 @@
                 {{ clip_form.title }}
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700">Reason / Notes</label>
-                {{ clip_form.reason }}
+                <label class="block text-sm font-medium text-gray-700">Hook / Notes</label>
+                {{ clip_form.hook }}
             </div>
             <div class="flex justify-end">
                 <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
@@ -46,7 +46,7 @@
 
     <!-- Clips List -->
     <div class="space-y-4">
-        {% for clip in clip_moments %}
+        {% for clip in clips %}
         <div class="bg-white border border-gray-200 rounded-lg p-4">
             <div class="flex justify-between items-start">
                 <div class="flex-1">
@@ -60,15 +60,15 @@
                         </span>
                     </div>
                     <div class="mt-1 text-sm text-gray-500">
-                        ⏱️ {{ clip.start_seconds|floatformat:1 }}s → {{ clip.end_seconds|floatformat:1 }}s 
-                        <span class="text-gray-400">({{ clip.duration|floatformat:1 }}s)</span>
+                        ⏱️ {{ clip.start_formatted }} → {{ clip.end_formatted }}
+                        <span class="text-gray-400">({{ clip.duration_ms }}ms)</span>
                     </div>
-                    {% if clip.reason %}
-                    <p class="mt-2 text-sm text-gray-600">{{ clip.reason }}</p>
+                    {% if clip.hook %}
+                    <p class="mt-2 text-sm text-gray-600">{{ clip.hook }}</p>
                     {% endif %}
-                    {% if clip.transcript_excerpt %}
+                    {% if clip.caption_draft %}
                     <div class="mt-2 bg-gray-50 rounded p-2 text-sm text-gray-700 italic">
-                        "{{ clip.transcript_excerpt|truncatechars:200 }}"
+                        "{{ clip.caption_draft|truncatechars:200 }}"
                     </div>
                     {% endif %}
                 </div>

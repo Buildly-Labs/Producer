@@ -5,14 +5,20 @@ import dj_database_url
 # Priority: DATABASE_URL (set by DigitalOcean) > individual env vars > SQLite fallback
 _db_url = os.getenv('DATABASE_URL', '')
 
-if _db_url:
+# Strip query params (e.g. ?ssl-mode=REQUIRED) that break mysqlclient
+_db_url_clean = _db_url.split('?')[0] if _db_url else ''
+
+if _db_url_clean and '://' in _db_url_clean and not _db_url_clean.startswith('$'):
     DATABASES = {
         'default': dj_database_url.parse(
-            _db_url,
+            _db_url_clean,
             conn_max_age=600,
             conn_health_checks=True,
         )
     }
+    # Enable SSL for managed databases (DigitalOcean, etc.)
+    if 'ssl-mode' in _db_url.lower() or 'ssl' in _db_url.lower():
+        DATABASES['default'].setdefault('OPTIONS', {})['ssl'] = {'ca': None}
 elif os.getenv('DATABASE_ENGINE') == 'postgresql':
     DATABASES = {
         'default': {
