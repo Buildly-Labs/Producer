@@ -1,7 +1,19 @@
 from .base import *
+import dj_database_url
 
-# Database configuration - use PostgreSQL if environment variables are set, otherwise SQLite
-if os.getenv('DATABASE_ENGINE') == 'postgresql':
+# Database configuration
+# Priority: DATABASE_URL (set by DigitalOcean) > individual env vars > SQLite fallback
+_db_url = os.getenv('DATABASE_URL', '')
+
+if _db_url:
+    DATABASES = {
+        'default': dj_database_url.parse(
+            _db_url,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+elif os.getenv('DATABASE_ENGINE') == 'postgresql':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -24,7 +36,7 @@ else:
 DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-4w$$of)udb)qv8=vs^5vy#8%9+kk73x0u$de0dxg2xl+@s^v1g'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-4w$$of)udb)qv8=vs^5vy#8%9+kk73x0u$de0dxg2xl+@s^v1g')
 
 # SECURITY WARNING: define the correct hosts in production!
 ALLOWED_HOSTS = ['*']
@@ -35,6 +47,11 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Session settings — persist across deploys via the database
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 14  # 14 days
+SESSION_SAVE_EVERY_REQUEST = True  # Refresh expiry on activity
 
 # Only add debug toolbar and other dev-only apps when not in Docker
 if not os.getenv('RUNNING_IN_DOCKER'):
