@@ -3,6 +3,44 @@
 from django.db import migrations, models
 
 
+def add_guest_contact_fields(apps, schema_editor):
+    """Add email and phone columns only if they don't already exist."""
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'production_ledger_guest'
+              AND COLUMN_NAME = 'email'
+            """
+        )
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(
+                "ALTER TABLE production_ledger_guest "
+                "ADD COLUMN email varchar(254) NOT NULL DEFAULT ''"
+            )
+
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'production_ledger_guest'
+              AND COLUMN_NAME = 'phone'
+            """
+        )
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(
+                "ALTER TABLE production_ledger_guest "
+                "ADD COLUMN phone varchar(50) NOT NULL DEFAULT ''"
+            )
+
+
+def noop(apps, schema_editor):
+    pass
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,14 +48,21 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="guest",
-            name="email",
-            field=models.EmailField(blank=True, max_length=254),
-        ),
-        migrations.AddField(
-            model_name="guest",
-            name="phone",
-            field=models.CharField(blank=True, max_length=50),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(add_guest_contact_fields, reverse_code=noop),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name="guest",
+                    name="email",
+                    field=models.EmailField(blank=True, max_length=254),
+                ),
+                migrations.AddField(
+                    model_name="guest",
+                    name="phone",
+                    field=models.CharField(blank=True, max_length=50),
+                ),
+            ],
         ),
     ]
