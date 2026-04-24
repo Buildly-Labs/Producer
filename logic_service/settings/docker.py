@@ -16,6 +16,9 @@ if _db_url_clean and '://' in _db_url_clean and not _db_url_clean.startswith('$'
             conn_health_checks=True,
         )
     }
+    # Ensure 4-byte emoji are supported on MySQL connections.
+    if DATABASES['default'].get('ENGINE', '').endswith('.mysql'):
+        DATABASES['default'].setdefault('OPTIONS', {})['charset'] = 'utf8mb4'
     # Enable SSL for managed databases (DigitalOcean, etc.)
     if 'ssl-mode' in _db_url.lower() or 'ssl' in _db_url.lower():
         DATABASES['default'].setdefault('OPTIONS', {})['ssl'] = {'ca': None}

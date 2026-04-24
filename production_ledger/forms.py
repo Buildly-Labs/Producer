@@ -455,7 +455,10 @@ class ClipMomentForm(TailwindFormMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        if self.instance and self.instance.pk:
+        # Use _state.adding rather than pk check: UUID models always have a
+        # non-None pk even before saving, so pk alone cannot distinguish a new
+        # instance from an existing one.
+        if self.instance and not self.instance._state.adding:
             # Convert ms to time format for display
             self.fields['start_time'].initial = self._ms_to_time(self.instance.start_ms)
             self.fields['end_time'].initial = self._ms_to_time(self.instance.end_ms)
