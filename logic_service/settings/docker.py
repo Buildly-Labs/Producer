@@ -61,12 +61,12 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.mailersend.net'
-EMAIL_PORT = 587
+EMAIL_HOST = os.getenv('BREVO_SMTP_HOST', 'smtp-relay.brevo.com')
+EMAIL_PORT = int(os.getenv('BREVO_SMTP_PORT', '587'))
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv('MAILERSEND_SMTP_USER', '')
-EMAIL_HOST_PASSWORD = os.getenv('MAILERSEND_SMTP_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'ProducerForge <noreply@firstcityfoundry.com>')
+EMAIL_HOST_USER = os.getenv('BREVO_SMTP_LOGIN', '')
+EMAIL_HOST_PASSWORD = os.getenv('BREVO_SMTP_KEY', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'ProducerForge <hello@firstcityfoundry.com>')
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # Session settings — persist across deploys via the database
