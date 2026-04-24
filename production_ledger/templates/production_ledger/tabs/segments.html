@@ -29,6 +29,12 @@
                             <span>⏱️ {{ segment.timebox_minutes }} min</span>
                             <span>👤 {{ segment.get_owner_role_display }}</span>
                         </div>
+                        {% if segment.bullet_prompts %}
+                        <div class="mt-2">
+                            <span class="text-xs font-medium text-gray-500 uppercase">Prompts:</span>
+                            <p class="text-sm text-gray-700 whitespace-pre-line">{{ segment.bullet_prompts }}</p>
+                        </div>
+                        {% endif %}
                         {% if segment.key_questions %}
                         <div class="mt-2">
                             <span class="text-xs font-medium text-gray-500 uppercase">Key Questions:</span>
@@ -84,6 +90,10 @@
             <div>
                 <label class="block text-sm font-medium text-gray-700">Purpose</label>
                 {{ segment_form.purpose }}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Prompts</label>
+                {{ segment_form.bullet_prompts }}
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700">Key Questions</label>
