@@ -347,7 +347,7 @@ def generate_questions(
 Episode: {episode.title}
 Show: {episode.show.name}
 Topic Focus: {topic_prompt}
-Episode Type: {episode.get_episode_type_display()}
+Episode Type: {episode.episode_type.name if episode.episode_type else 'General'}
 Target Duration: {episode.target_minutes} minutes
 """
     
@@ -418,7 +418,7 @@ def generate_show_notes(
 
 Episode: {episode.title}
 Show: {episode.show.name}
-Episode Type: {episode.get_episode_type_display()}
+Episode Type: {episode.episode_type.name if episode.episode_type else 'General'}
 """
     
     # Add segments context
@@ -560,7 +560,7 @@ def generate_segment_suggestions(
 Episode: {episode.title}
 Show: {episode.show.name}
 Target Duration: {episode.target_minutes} minutes
-Episode Type: {episode.get_episode_type_display()}
+Episode Type: {episode.episode_type.name if episode.episode_type else 'General'}
 Recording Context: {episode.get_recording_context_display()}
 """
     
@@ -618,7 +618,7 @@ def generate_titles(
 
 Current Title: {episode.title}
 Show: {episode.show.name}
-Episode Type: {episode.get_episode_type_display()}
+Episode Type: {episode.episode_type.name if episode.episode_type else 'General'}
 """
     
     guests = episode.episode_guests.select_related('guest').all()
