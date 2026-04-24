@@ -3,7 +3,7 @@
 {% block title %}User Management — ProducerForge{% endblock %}
 
 {% block content %}
-<div class="px-4 sm:px-6 lg:px-8 py-8 max-w-6xl mx-auto">
+<div class="px-4 sm:px-6 lg:px-8 py-8 max-w-6xl mx-auto" x-data="{ tab: '{{ active_tab|default:'users' }}' }">
     <div class="flex items-center justify-between mb-8">
         <div>
             <h1 class="text-2xl font-bold">User Management</h1>
@@ -12,7 +12,7 @@
     </div>
 
     <!-- Tabs -->
-    <div class="flex gap-1 mb-8 border-b border-[var(--border-subtle)]" x-data="{ tab: '{{ active_tab|default:'users' }}' }">
+    <div class="flex gap-1 mb-8 border-b border-[var(--border-subtle)]">
         <button @click="tab='users'" :class="tab==='users' ? 'border-[var(--accent-primary)] text-[var(--accent-primary)]' : 'border-transparent text-[var(--text-secondary)]'" 
                 class="px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors">
             Users ({{ users|length }})
@@ -41,7 +41,7 @@
     </div>
 
     <!-- Users Tab -->
-    <div x-show="tab==='users'">
+    <div x-show="tab==='users'" x-cloak>
         <div class="card">
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
@@ -87,7 +87,7 @@
     </div>
 
     <!-- Invitations Tab -->
-    <div x-show="tab==='invitations'" style="display:none;">
+    <div x-show="tab==='invitations'" x-cloak>
         <div class="card">
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
@@ -125,7 +125,7 @@
     </div>
 
     <!-- Access Requests Tab -->
-    <div x-show="tab==='requests'" style="display:none;">
+    <div x-show="tab==='requests'" x-cloak>
         <div class="card">
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
