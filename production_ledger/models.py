@@ -425,6 +425,11 @@ class Segment(BaseModel):
     bullet_prompts = models.TextField(blank=True, help_text="Bullet points for this segment")
     key_questions = models.TextField(blank=True, help_text="Key questions to cover")
 
+    # Live recording tracking
+    is_completed = models.BooleanField(default=False, help_text="Marked complete during live recording")
+    completed_at = models.DateTimeField(null=True, blank=True, help_text="When this segment was marked complete")
+    live_notes = models.TextField(blank=True, help_text="Notes captured during live recording of this segment")
+
     class Meta:
         verbose_name = "Segment"
         verbose_name_plural = "Segments"

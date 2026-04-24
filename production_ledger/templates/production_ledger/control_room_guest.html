@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guest View - {{ episode.title }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .segment-card { transition: all 0.3s ease; }
+        .current-segment { transform: scale(1.02); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3); }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <div class="max-w-5xl mx-auto" x-data="guestView()">
+        <!-- Header -->
+        <div class="bg-white rounded-2xl shadow-2xl p-6 md:p-8 mb-6">
+            <div class="text-center">
+                <div class="text-sm text-gray-500 mb-2">{{ episode.show.name }}</div>
+                <h1 class="text-3xl md:text-4xl font-bold text-gray-900 mb-2">{{ episode.title }}</h1>
+                <p class="text-gray-600">Guest View - Focus on current segment</p>
+            </div>
+
+            <!-- Current Segment Indicator -->
+            <div class="mt-6 text-center">
+                <div class="text-sm text-gray-500 mb-2">Current Segment</div>
+                <div class="text-5xl font-bold text-purple-600" x-text="currentSegmentIndex + 1">1</div>
+                <div class="text-sm text-gray-500">of {{ segments|length }}</div>
+            </div>
+
+            <!-- Navigation -->
+            <div class="flex justify-center gap-4 mt-6">
+                <button @click="prevSegment"
+                        :disabled="currentSegmentIndex === 0"
+                        :class="currentSegmentIndex === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'"
+                        class="px-6 py-3 bg-gray-600 text-white rounded-lg font-medium transition-colors">
+                    ← Previous
+                </button>
+                <button @click="nextSegment"
+                        :disabled="currentSegmentIndex >= {{ segments|length }} - 1"
+                        :class="currentSegmentIndex >= {{ segments|length }} - 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700'"
+                        class="px-6 py-3 bg-purple-600 text-white rounded-lg font-medium transition-colors">
+                    Next →
+                </button>
+            </div>
+        </div>
+
+        <!-- Current Segment Display -->
+        {% for segment in segments %}
+        <div x-show="currentSegmentIndex === {{ forloop.counter0 }}"
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 transform scale-95"
+             x-transition:enter-end="opacity-100 transform scale-100"
+             class="bg-white rounded-2xl shadow-2xl p-6 md:p-8 current-segment">
+
+            <div class="space-y-6">
+                <!-- Segment Title -->
+                <div class="border-b-4 border-purple-600 pb-4">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                            Segment {{ segment.order }}
+                        </span>
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                            ⏱️ {{ segment.timebox_minutes }} minutes
+                        </span>
+                    </div>
+                    <h2 class="text-3xl font-bold text-gray-900">{{ segment.title }}</h2>
+                    {% if segment.purpose %}
+                    <p class="text-lg text-gray-600 mt-2">{{ segment.purpose }}</p>
+                    {% endif %}
+                </div>
+
+                <!-- Talking Points (Large and Easy to Read) -->
+                {% if segment.bullet_prompts %}
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-r-lg">
+                    <h3 class="text-2xl font-bold text-yellow-900 mb-4 flex items-center">
+                        💡 Talking Points
+                    </h3>
+                    <div class="text-lg text-gray-800 space-y-3 whitespace-pre-line leading-relaxed">
+                        {{ segment.bullet_prompts }}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Key Questions -->
+                {% if segment.key_questions %}
+                <div class="bg-green-50 border-l-4 border-green-400 p-6 rounded-r-lg">
+                    <h3 class="text-2xl font-bold text-green-900 mb-4 flex items-center">
+                        ❓ Questions to Answer
+                    </h3>
+                    <div class="text-lg text-gray-800 space-y-3 whitespace-pre-line leading-relaxed">
+                        {{ segment.key_questions }}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Guest-Specific Info -->
+                {% for episode_guest in guests %}
+                {% if episode_guest.key_topics or episode_guest.prep_notes %}
+                <div class="bg-blue-50 border-l-4 border-blue-400 p-6 rounded-r-lg">
+                    <h3 class="text-2xl font-bold text-blue-900 mb-4">
+                        📌 Your Topics
+                    </h3>
+                    {% if episode_guest.key_topics %}
+                    <div class="text-lg text-gray-800 mb-3">
+                        <strong>Key Topics:</strong> {{ episode_guest.key_topics }}
+                    </div>
+                    {% endif %}
+                    {% if episode_guest.prep_notes %}
+                    <div class="text-lg text-gray-800">
+                        <strong>Notes:</strong> {{ episode_guest.prep_notes }}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% endfor %}
+
+                <!-- No-Go Topics Warning -->
+                {% for episode_guest in guests %}
+                {% if episode_guest.no_go_topics %}
+                <div class="bg-red-50 border-l-4 border-red-500 p-6 rounded-r-lg">
+                    <h3 class="text-2xl font-bold text-red-900 mb-3">
+                        ⚠️ Topics to Avoid
+                    </h3>
+                    <div class="text-lg text-red-800 whitespace-pre-line">
+                        {{ episode_guest.no_go_topics }}
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <!-- All Segments Quick Reference (Collapsible) -->
+        <div class="mt-6 bg-white rounded-2xl shadow-lg p-6" x-data="{ showAll: false }">
+            <button @click="showAll = !showAll"
+                    class="w-full flex justify-between items-center text-lg font-semibold text-gray-900 hover:text-purple-600 transition-colors">
+                <span>📋 View All Segments</span>
+                <span x-text="showAll ? '▲' : '▼'">▼</span>
+            </button>
+
+            <div x-show="showAll" x-transition class="mt-4 space-y-3">
+                {% for segment in segments %}
+                <button @click="currentSegmentIndex = {{ forloop.counter0 }}"
+                        :class="currentSegmentIndex === {{ forloop.counter0 }} ? 'bg-purple-100 border-purple-500' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'"
+                        class="w-full text-left p-4 rounded-lg border-2 transition-all">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="font-semibold text-gray-900">Segment {{ segment.order }}: {{ segment.title }}</div>
+                            <div class="text-sm text-gray-600">{{ segment.timebox_minutes }} minutes</div>
+                        </div>
+                        <span x-show="currentSegmentIndex === {{ forloop.counter0 }}"
+                              class="text-purple-600 font-bold">→</span>
+                    </div>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Footer Info -->
+        <div class="mt-6 text-center text-white text-sm opacity-75">
+            <p>This is your guest view. The host has the full production notes.</p>
+            <p class="mt-1">Use Previous/Next buttons or click segments above to navigate.</p>
+        </div>
+    </div>
+
+    <script>
+    function guestView() {
+        return {
+            currentSegmentIndex: 0,
+
+            nextSegment() {
+                if (this.currentSegmentIndex < {{ segments|length }} - 1) {
+                    this.currentSegmentIndex++;
+                }
+            },
+
+            prevSegment() {
+                if (this.currentSegmentIndex > 0) {
+                    this.currentSegmentIndex--;
+                }
+            }
+        }
+    }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', function(e) {
+        const app = Alpine.$data(document.querySelector('[x-data="guestView()"]'));
+        if (e.key === 'ArrowRight') {
+            app.nextSegment();
+        } else if (e.key === 'ArrowLeft') {
+            app.prevSegment();
+        }
+    });
+    </script>
+</body>
+</html>

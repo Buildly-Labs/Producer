@@ -872,31 +872,53 @@ class EpisodeChecklistView(EpisodeTabMixin, TemplateView):
 
 class ControlRoomView(EpisodeTabMixin, TemplateView):
     """Control room for live production."""
-    
-    template_name = 'production_ledger/control_room.html'
+
     active_tab = 'control_room'
     required_roles = [Role.ADMIN, Role.HOST, Role.PRODUCER]
-    
+
+    def get_template_names(self):
+        """Return different template based on mode."""
+        mode = self.request.GET.get('mode', 'dashboard')
+        view_type = self.request.GET.get('view', 'host')
+
+        if mode == 'live':
+            return ['production_ledger/control_room_live.html']
+        elif view_type == 'guest':
+            return ['production_ledger/control_room_guest.html']
+        else:
+            return ['production_ledger/control_room.html']
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         episode = self.get_episode()
-        context['segments'] = episode.segments.all().order_by('order')
+        segments = episode.segments.all().order_by('order')
+
+        context['segments'] = segments
         context['live_notes_form'] = LiveNotesForm(instance=episode)
         context['quick_clip_form'] = QuickClipForm()
+        context['guests'] = episode.episode_guests.select_related('guest').all()
+
+        # Calculate progress
+        total_segments = segments.count()
+        completed_segments = segments.filter(is_completed=True).count()
+        context['total_segments'] = total_segments
+        context['completed_segments'] = completed_segments
+        context['progress_percentage'] = int((completed_segments / total_segments * 100) if total_segments > 0 else 0)
+
         return context
-    
+
     def post(self, request, *args, **kwargs):
         episode = self.get_episode()
-        
+
         # Handle different POST actions
         action = request.POST.get('action')
-        
+
         if action == 'save_notes':
             form = LiveNotesForm(request.POST, instance=episode)
             if form.is_valid():
                 form.save()
                 messages.success(request, 'Notes saved!')
-        
+
         elif action == 'quick_clip':
             form = QuickClipForm(request.POST)
             if form.is_valid():
@@ -911,7 +933,33 @@ class ControlRoomView(EpisodeTabMixin, TemplateView):
                     created_by=request.user,
                 )
                 messages.success(request, 'Moment flagged!')
-        
+
+        elif action == 'toggle_segment':
+            segment_id = request.POST.get('segment_id')
+            try:
+                segment = Segment.objects.get(pk=segment_id, episode=episode)
+                segment.is_completed = not segment.is_completed
+                segment.completed_at = timezone.now() if segment.is_completed else None
+                segment.save()
+                return JsonResponse({
+                    'success': True,
+                    'is_completed': segment.is_completed,
+                    'completed_at': segment.completed_at.isoformat() if segment.completed_at else None
+                })
+            except Segment.DoesNotExist:
+                return JsonResponse({'success': False, 'error': 'Segment not found'}, status=404)
+
+        elif action == 'save_segment_notes':
+            segment_id = request.POST.get('segment_id')
+            notes = request.POST.get('notes', '')
+            try:
+                segment = Segment.objects.get(pk=segment_id, episode=episode)
+                segment.live_notes = notes
+                segment.save()
+                return JsonResponse({'success': True})
+            except Segment.DoesNotExist:
+                return JsonResponse({'success': False, 'error': 'Segment not found'}, status=404)
+
         return redirect('production_ledger:control_room', pk=episode.pk)
 
 
