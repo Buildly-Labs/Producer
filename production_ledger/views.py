@@ -1493,9 +1493,18 @@ class RequestAccessView(TemplateView):
 
     def post(self, request, *args, **kwargs):
         from .forms import AccessRequestForm
+        from django.contrib.auth.models import User
+        from .services.email import send_access_request_received
         form = AccessRequestForm(request.POST)
         if form.is_valid():
-            form.save()
+            access_request = form.save()
+            # Notify all superusers
+            admin_emails = list(
+                User.objects.filter(is_superuser=True)
+                .exclude(email='')
+                .values_list('email', flat=True)
+            )
+            send_access_request_received(access_request, admin_emails)
             return self.render_to_response(self.get_context_data(
                 submitted=True,
                 submitted_email=form.cleaned_data['email'],
@@ -1663,6 +1672,7 @@ class InviteUserView(LoginRequiredMixin, TemplateView):
 
     def post(self, request, *args, **kwargs):
         from .forms import InvitationForm
+        from .services.email import send_invitation_email
         form = InvitationForm(request.POST)
         if form.is_valid():
             invitation = form.save(commit=False)
@@ -1671,6 +1681,7 @@ class InviteUserView(LoginRequiredMixin, TemplateView):
             invite_link = request.build_absolute_uri(
                 reverse('production_ledger:accept_invite', kwargs={'token': invitation.token})
             )
+            send_invitation_email(invitation, invite_link)
             messages.success(request, f'Invitation sent to {invitation.email}')
             return self.render_to_response(self.get_context_data(
                 form=InvitationForm(),
@@ -1708,6 +1719,8 @@ class ReviewAccessRequestView(LoginRequiredMixin, View):
             invite_link = request.build_absolute_uri(
                 reverse('production_ledger:accept_invite', kwargs={'token': invitation.token})
             )
+            from .services.email import send_access_approved
+            send_access_approved(invitation, invite_link)
             messages.success(
                 request,
                 f'Approved {ar.name}. Invite link: {invite_link}'
@@ -1717,6 +1730,8 @@ class ReviewAccessRequestView(LoginRequiredMixin, View):
             ar.reviewed_by = request.user
             ar.reviewed_at = tz.now()
             ar.save()
+            from .services.email import send_access_declined
+            send_access_declined(ar)
             messages.info(request, f'Declined request from {ar.name}.')
 
         return redirect(reverse('production_ledger:user_management') + '?tab=requests')
