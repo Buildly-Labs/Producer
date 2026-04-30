@@ -62,6 +62,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'production_ledger.gateway_auth.GatewaySSOMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -222,6 +223,7 @@ LOGIN_REDIRECT_URL = 'production_ledger:dashboard'
 LOGOUT_REDIRECT_URL = 'production_ledger:login'
 
 AUTHENTICATION_BACKENDS = [
+    'production_ledger.gateway_auth.GatewayTokenBackend',
     'logic.backends.EmailOrUsernameBackend',
     'django.contrib.auth.backends.ModelBackend',
 ]
