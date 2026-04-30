@@ -23,10 +23,27 @@
             </div>
 
             <!-- Current Segment Indicator -->
-            <div class="mt-6 text-center">
-                <div class="text-sm text-gray-500 mb-2">Current Segment</div>
-                <div class="text-5xl font-bold text-purple-600" x-text="currentSegmentIndex + 1">1</div>
-                <div class="text-sm text-gray-500">of {{ segments|length }}</div>
+            <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                <div class="text-center md:text-left">
+                    <div class="text-sm text-gray-500 mb-2">Current Segment</div>
+                    <div class="text-5xl font-bold text-purple-600" x-text="currentSegmentIndex + 1">1</div>
+                    <div class="text-sm text-gray-500">of {{ segments|length }}</div>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                    <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Elapsed Time</div>
+                    <div class="text-3xl font-bold text-gray-900 font-mono" x-text="formatTime(elapsedSeconds)">00:00:00</div>
+                    <div class="mt-3 flex gap-2">
+                        <button @click="toggleTimer"
+                                :class="isRunning ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'"
+                                class="px-3 py-2 text-white rounded-md text-sm font-medium transition-colors">
+                            <span x-show="!isRunning">Start</span>
+                            <span x-show="isRunning">Pause</span>
+                        </button>
+                        <button @click="resetTimer" class="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-md text-sm font-medium text-gray-800">
+                            Reset
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <!-- Navigation -->
@@ -65,6 +82,13 @@
                             ⏱️ {{ segment.timebox_minutes }} minutes
                         </span>
                     </div>
+                    <label class="inline-flex items-center gap-2 mt-2 text-sm text-gray-700">
+                        <input type="checkbox"
+                               :checked="segments[{{ forloop.counter0 }}].completed"
+                               @change="toggleSegment({{ forloop.counter0 }}, '{{ segment.id }}')"
+                               class="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500 cursor-pointer">
+                        Mark segment complete
+                    </label>
                     <h2 class="text-3xl font-bold text-gray-900">{{ segment.title }}</h2>
                     {% if segment.purpose %}
                     <p class="text-lg text-gray-600 mt-2">{{ segment.purpose }}</p>
@@ -89,8 +113,15 @@
                     <h3 class="text-2xl font-bold text-green-900 mb-4 flex items-center">
                         ❓ Questions to Answer
                     </h3>
-                    <div class="text-lg text-gray-800 space-y-3 whitespace-pre-line leading-relaxed">
-                        {{ segment.key_questions }}
+                    <div class="space-y-2">
+                        <template x-for="(question, questionIndex) in segments[{{ forloop.counter0 }}].questions" :key="`q-${questionIndex}`">
+                            <label class="flex items-start gap-3 p-2 rounded-md hover:bg-green-100/60">
+                                <input type="checkbox"
+                                       x-model="segments[{{ forloop.counter0 }}].questionDone[questionIndex]"
+                                       class="mt-1 w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500">
+                                <span class="text-lg text-gray-800 leading-relaxed" x-text="question"></span>
+                            </label>
+                        </template>
                     </div>
                 </div>
                 {% endif %}
@@ -170,6 +201,43 @@
     function guestView() {
         return {
             currentSegmentIndex: 0,
+            elapsedSeconds: 0,
+            isRunning: false,
+            timerInterval: null,
+            segments: [
+                {% for segment in segments %}
+                {
+                    id: '{{ segment.id }}',
+                    completed: {{ segment.is_completed|yesno:"true,false" }},
+                    questions: `{{ segment.key_questions|default:''|escapejs }}`.split('\n').map(q => q.trim()).filter(Boolean),
+                    questionDone: []
+                }{% if not forloop.last %},{% endif %}
+                {% endfor %}
+            ],
+
+            formatTime(seconds) {
+                const hrs = Math.floor(seconds / 3600);
+                const mins = Math.floor((seconds % 3600) / 60);
+                const secs = seconds % 60;
+                return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            },
+
+            toggleTimer() {
+                this.isRunning = !this.isRunning;
+                if (this.isRunning) {
+                    this.timerInterval = setInterval(() => {
+                        this.elapsedSeconds += 1;
+                    }, 1000);
+                } else {
+                    clearInterval(this.timerInterval);
+                }
+            },
+
+            resetTimer() {
+                this.isRunning = false;
+                clearInterval(this.timerInterval);
+                this.elapsedSeconds = 0;
+            },
 
             nextSegment() {
                 if (this.currentSegmentIndex < {{ segments|length }} - 1) {
@@ -180,6 +248,28 @@
             prevSegment() {
                 if (this.currentSegmentIndex > 0) {
                     this.currentSegmentIndex--;
+                }
+            },
+
+            async toggleSegment(index, segmentId) {
+                this.segments[index].completed = !this.segments[index].completed;
+                try {
+                    const formData = new FormData();
+                    formData.append('action', 'toggle_segment');
+                    formData.append('segment_id', segmentId);
+                    formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+                    const response = await fetch('', {
+                        method: 'POST',
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
+                        this.segments[index].completed = !this.segments[index].completed;
+                    }
+                } catch (error) {
+                    console.error('Error toggling segment:', error);
+                    this.segments[index].completed = !this.segments[index].completed;
                 }
             }
         }

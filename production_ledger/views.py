@@ -51,6 +51,7 @@ from .forms import (
     QuickClipForm,
     SegmentForm,
     ShowForm,
+    ShowJoinRequestForm,
     ShowNoteDraftForm,
     ShowRoleAssignmentForm,
     TranscriptEditForm,
@@ -67,6 +68,7 @@ from .models import (
     MediaAsset,
     Segment,
     Show,
+    ShowJoinRequest,
     ShowNoteDraft,
     ShowNoteFinal,
     ShowRoleAssignment,
@@ -323,7 +325,15 @@ class ShowDetailView(LoginRequiredMixin, OrganizationMixin, RoleMixin, DetailVie
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['episodes'] = self.object.episodes.all().order_by('-created_at')
-        context['user_role'] = self.get_user_role(self.object)
+        user_role = self.get_user_role(self.object)
+        context['user_role'] = user_role
+        context['can_request_join'] = user_role is None
+        context['join_request_form'] = ShowJoinRequestForm()
+        context['pending_join_request'] = ShowJoinRequest.objects.filter(
+            show=self.object,
+            user=self.request.user,
+            status='pending',
+        ).first()
         return context
 
 
@@ -361,22 +371,79 @@ class ShowRolesView(LoginRequiredMixin, OrganizationMixin, RoleMixin, TemplateVi
         context['role_assignments'] = ShowRoleAssignment.objects.filter(
             show=context['show']
         ).select_related('user')
-        context['form'] = ShowRoleAssignmentForm()
+        form = ShowRoleAssignmentForm()
+        form.fields['user'].queryset = form.fields['user'].queryset.filter(is_active=True).order_by('username')
+        context['form'] = form
         context['roles'] = Role.CHOICES
+        context['pending_join_requests'] = ShowJoinRequest.objects.filter(
+            show=context['show'],
+            status='pending',
+        ).select_related('user')
         return context
     
     def post(self, request, *args, **kwargs):
         show = self.get_show()
-        form = ShowRoleAssignmentForm(request.POST)
-        
-        if form.is_valid():
-            assignment = form.save(commit=False)
-            assignment.show = show
-            assignment.created_by = request.user
-            assignment.save()
-            messages.success(request, 'Role assigned successfully!')
+
+        action = request.POST.get('action', 'assign_role')
+        if action == 'review_join_request':
+            join_request_id = request.POST.get('join_request_id')
+            decision = request.POST.get('decision')
+
+            join_request = get_object_or_404(ShowJoinRequest, pk=join_request_id, show=show)
+            if join_request.status != 'pending':
+                messages.info(request, 'This request has already been reviewed.')
+                return redirect('production_ledger:show_roles', pk=show.pk)
+
+            join_request.reviewed_by = request.user
+            join_request.reviewed_at = timezone.now()
+
+            if decision == 'approve':
+                assignment, created = ShowRoleAssignment.objects.get_or_create(
+                    show=show,
+                    user=join_request.user,
+                    defaults={
+                        'role': join_request.desired_role,
+                        'created_by': request.user,
+                    }
+                )
+                if not created and assignment.role != join_request.desired_role:
+                    assignment.role = join_request.desired_role
+                    assignment.save(update_fields=['role'])
+
+                join_request.status = 'approved'
+                join_request.save(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+                messages.success(request, f'Approved request and assigned {join_request.user.username} as {join_request.desired_role}.')
+            else:
+                join_request.status = 'declined'
+                join_request.save(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+                messages.info(request, f'Declined join request from {join_request.user.username}.')
         else:
-            messages.error(request, 'Error assigning role.')
+            form = ShowRoleAssignmentForm(request.POST)
+            form.fields['user'].queryset = form.fields['user'].queryset.filter(is_active=True)
+
+            if form.is_valid():
+                user = form.cleaned_data['user']
+                role = form.cleaned_data['role']
+                assignment, created = ShowRoleAssignment.objects.get_or_create(
+                    show=show,
+                    user=user,
+                    defaults={
+                        'role': role,
+                        'created_by': request.user,
+                    }
+                )
+
+                if created:
+                    messages.success(request, 'Role assigned successfully!')
+                else:
+                    if assignment.role != role:
+                        assignment.role = role
+                        assignment.save(update_fields=['role'])
+                        messages.success(request, 'Existing role assignment updated successfully!')
+                    else:
+                        messages.info(request, 'User already has that role for this show.')
+            else:
+                messages.error(request, 'Error assigning role.')
         
         return redirect('production_ledger:show_roles', pk=show.pk)
 
@@ -881,10 +948,10 @@ class ControlRoomView(EpisodeTabMixin, TemplateView):
         mode = self.request.GET.get('mode', 'dashboard')
         view_type = self.request.GET.get('view', 'host')
 
-        if mode == 'live':
-            return ['production_ledger/control_room_live.html']
-        elif view_type == 'guest':
+        if view_type == 'guest':
             return ['production_ledger/control_room_guest.html']
+        elif mode == 'live':
+            return ['production_ledger/control_room_live.html']
         else:
             return ['production_ledger/control_room.html']
 
@@ -1672,7 +1739,44 @@ class GuestPortalView(LoginRequiredMixin, TemplateView):
         context['episodes'] = Episode.objects.filter(
             models.Q(id__in=episode_ids) | models.Q(show_id__in=guest_show_ids)
         ).select_related('show').distinct().order_by('-updated_at')
+
+        assigned_show_ids = set(
+            ShowRoleAssignment.objects.filter(user=user).values_list('show_id', flat=True)
+        )
+        context['available_shows'] = Show.objects.exclude(id__in=assigned_show_ids).order_by('name')
+        context['pending_show_request_ids'] = set(
+            ShowJoinRequest.objects.filter(user=user, status='pending').values_list('show_id', flat=True)
+        )
+        context['roles'] = Role.CHOICES
         return context
+
+
+class RequestShowJoinView(LoginRequiredMixin, View):
+    """Allow an authenticated user to request access to a specific show."""
+
+    def post(self, request, show_id):
+        show = get_object_or_404(Show, pk=show_id)
+
+        if ShowRoleAssignment.objects.filter(show=show, user=request.user).exists():
+            messages.info(request, 'You already have access to this show.')
+            return redirect('production_ledger:guest_portal')
+
+        if ShowJoinRequest.objects.filter(show=show, user=request.user, status='pending').exists():
+            messages.info(request, 'You already have a pending request for this show.')
+            return redirect('production_ledger:guest_portal')
+
+        form = ShowJoinRequestForm(request.POST)
+        if form.is_valid():
+            join_request = form.save(commit=False)
+            join_request.show = show
+            join_request.user = request.user
+            join_request.status = 'pending'
+            join_request.save()
+            messages.success(request, f'Request sent to join {show.name} as {join_request.desired_role}.')
+        else:
+            messages.error(request, 'Could not submit request. Please try again.')
+
+        return redirect('production_ledger:guest_portal')
 
 
 # =============================================================================

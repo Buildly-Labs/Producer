@@ -25,6 +25,7 @@ from .models import (
     MediaAsset,
     Segment,
     Show,
+    ShowJoinRequest,
     ShowNoteDraft,
     ShowNoteFinal,
     ShowRoleAssignment,
@@ -648,6 +649,17 @@ class ShowRoleAssignmentForm(TailwindFormMixin, forms.ModelForm):
     class Meta:
         model = ShowRoleAssignment
         fields = ['user', 'role']
+
+
+class ShowJoinRequestForm(TailwindFormMixin, forms.ModelForm):
+    """Form for a user requesting role-based access to a show."""
+
+    class Meta:
+        model = ShowJoinRequest
+        fields = ['desired_role', 'message']
+        widgets = {
+            'message': forms.Textarea(attrs={'rows': 3}),
+        }
 
 
 # =============================================================================

@@ -23,6 +23,7 @@ urlpatterns = [
 
     # Guest portal
     path('guest/', views.GuestPortalView.as_view(), name='guest_portal'),
+    path('shows/<uuid:show_id>/request-join/', views.RequestShowJoinView.as_view(), name='request_show_join'),
 
     # Admin user management
     path('users/', views.UserManagementView.as_view(), name='user_management'),

@@ -54,5 +54,54 @@
         </div>
     </div>
     {% endif %}
+
+    <div class="mt-10">
+        <h2 class="text-xl font-semibold mb-2">Request access to a show</h2>
+        <p class="text-sm text-[var(--text-secondary)] mb-4">If you are not assigned yet, request a role for a show below.</p>
+
+        {% if available_shows %}
+        <div class="grid gap-3">
+            {% for show in available_shows %}
+            <div class="card">
+                <div class="card-body">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div>
+                            <h3 class="font-semibold">{{ show.name }}</h3>
+                            {% if show.description %}
+                            <p class="text-sm text-[var(--text-muted)]">{{ show.description }}</p>
+                            {% endif %}
+                        </div>
+
+                        {% if show.id in pending_show_request_ids %}
+                        <span class="badge badge-warning">Request Pending</span>
+                        {% else %}
+                        <form method="post" action="{% url 'production_ledger:request_show_join' show_id=show.pk %}" class="flex flex-wrap items-end gap-2">
+                            {% csrf_token %}
+                            <div>
+                                <label class="block text-xs text-[var(--text-muted)] mb-1">Role</label>
+                                <select name="desired_role" class="block rounded-md border-gray-300 text-sm">
+                                    {% for role_value, role_label in roles %}
+                                    <option value="{{ role_value }}" {% if role_value == 'guest' %}selected{% endif %}>{{ role_label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-[var(--text-muted)] mb-1">Message (optional)</label>
+                                <input type="text" name="message" class="block rounded-md border-gray-300 text-sm" placeholder="How you'd like to contribute">
+                            </div>
+                            <button type="submit" class="btn btn-sm btn-primary">Request Access</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="card">
+            <div class="card-body text-sm text-[var(--text-muted)]">No additional shows are available to request.</div>
+        </div>
+        {% endif %}
+    </div>
 </div>
 {% endblock %}

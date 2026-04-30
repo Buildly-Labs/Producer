@@ -30,6 +30,19 @@
                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
                 + New Episode
             </a>
+            {% if can_request_join %}
+            <form method="post" action="{% url 'production_ledger:request_show_join' show_id=show.pk %}" class="inline-flex items-end gap-2">
+                {% csrf_token %}
+                <input type="hidden" name="desired_role" value="guest">
+                {% if pending_join_request %}
+                <span class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md bg-yellow-100 text-yellow-800">Join Request Pending</span>
+                {% else %}
+                <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+                    Request to Join Show
+                </button>
+                {% endif %}
+            </form>
+            {% endif %}
         </div>
     </div>
 

@@ -377,6 +377,50 @@ class ShowRoleAssignment(models.Model):
         return f"{self.user} - {self.role} on {self.show.name}"
 
 
+class ShowJoinRequest(models.Model):
+    """
+    Request by a signed-in user to join a specific show with a target role.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    show = models.ForeignKey(Show, on_delete=models.CASCADE, related_name='join_requests')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='show_join_requests',
+    )
+    desired_role = models.CharField(max_length=20, choices=Role.CHOICES, default=Role.GUEST)
+    message = models.TextField(blank=True, default='')
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('declined', 'Declined'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_show_join_requests',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Show Join Request'
+        verbose_name_plural = 'Show Join Requests'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['show', 'status']),
+            models.Index(fields=['user', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.user} -> {self.show.name} ({self.desired_role}, {self.status})"
+
+
 class EpisodeRoleOverride(models.Model):
     """
     Optional: Override a user's role for a specific episode.
