@@ -1,15 +1,41 @@
 from django.db import migrations
 
 
+def _fix_icon_charset(apps, schema_editor):
+    """ALTER icon column charset — MySQL only, no-op on all other backends."""
+    if schema_editor.connection.vendor != 'mysql':
+        return
+    schema_editor.execute(
+        """
+        ALTER TABLE `production_ledger_episodetype`
+            MODIFY COLUMN `icon` VARCHAR(50)
+                CHARACTER SET utf8mb4
+                COLLATE utf8mb4_unicode_ci
+                NOT NULL DEFAULT ''
+        """
+    )
+
+
+def _reverse_fix_icon_charset(apps, schema_editor):
+    if schema_editor.connection.vendor != 'mysql':
+        return
+    schema_editor.execute(
+        """
+        ALTER TABLE `production_ledger_episodetype`
+            MODIFY COLUMN `icon` VARCHAR(50)
+                CHARACTER SET utf8
+                COLLATE utf8_unicode_ci
+                NOT NULL DEFAULT ''
+        """
+    )
+
+
 class Migration(migrations.Migration):
     """
     ALTER the `icon` column on production_ledger_episodetype to use utf8mb4
     so that 4-byte emoji characters (e.g. 🌍 U+1F30D) can be stored.
 
-    MySQL's default `utf8` charset only supports 3-byte code points; emoji
-    require the `utf8mb4` charset.  This migration is a no-op on SQLite and
-    PostgreSQL (RunSQL returns gracefully when the dialect doesn't use
-    CHARACTER SET).
+    MySQL only — RunPython guard makes this a no-op on PostgreSQL and SQLite.
     """
 
     dependencies = [
@@ -17,24 +43,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql="""
-                ALTER TABLE `production_ledger_episodetype`
-                    MODIFY COLUMN `icon` VARCHAR(50)
-                        CHARACTER SET utf8mb4
-                        COLLATE utf8mb4_unicode_ci
-                        NOT NULL DEFAULT '';
-            """,
-            # Reverse: revert to the server-default charset (utf8).
-            # In practice you would rarely need to run this, but it keeps the
-            # migration reversible.
-            reverse_sql="""
-                ALTER TABLE `production_ledger_episodetype`
-                    MODIFY COLUMN `icon` VARCHAR(50)
-                        CHARACTER SET utf8
-                        COLLATE utf8_unicode_ci
-                        NOT NULL DEFAULT '';
-            """,
-            hints={"target_db": "mysql"},
-        ),
+        migrations.RunPython(_fix_icon_charset, _reverse_fix_icon_charset),
     ]
