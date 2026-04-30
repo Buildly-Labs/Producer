@@ -220,7 +220,8 @@ SEARCH_SERVICE_ENABLED = True if os.getenv('SEARCH_SERVICE_ENABLED') == 'True' e
 # Use named URLs so FORCE_SCRIPT_NAME is respected automatically.
 LOGIN_URL = 'production_ledger:login'
 LOGIN_REDIRECT_URL = 'production_ledger:dashboard'
-LOGOUT_REDIRECT_URL = 'production_ledger:login'
+# After Django logout, redirect to the gateway which clears the forge_auth cookie
+LOGOUT_REDIRECT_URL = '/logout'
 
 AUTHENTICATION_BACKENDS = [
     'production_ledger.gateway_auth.GatewayTokenBackend',
