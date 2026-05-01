@@ -29,6 +29,8 @@ urlpatterns = [
     path('users/', views.UserManagementView.as_view(), name='user_management'),
     path('users/invite/', views.InviteUserView.as_view(), name='invite_user'),
     path('users/request/<uuid:pk>/review/', views.ReviewAccessRequestView.as_view(), name='review_access_request'),
+    path('users/<int:pk>/action/', views.UserAccountActionView.as_view(), name='user_account_action'),
+    path('users/invitations/<uuid:pk>/action/', views.InvitationActionView.as_view(), name='invitation_action'),
     
     # Content list views
     path('transcripts/', views.TranscriptListView.as_view(), name='transcript_list'),

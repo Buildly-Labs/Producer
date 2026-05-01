@@ -51,6 +51,7 @@
                             <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Email</th>
                             <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Status</th>
                             <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Last Login</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -76,9 +77,65 @@
                                 {% endif %}
                             </td>
                             <td class="px-4 py-3 text-[var(--text-muted)]">{{ u.last_login|default:"Never"|date:"M d, Y" }}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <details class="relative">
+                                        <summary class="btn btn-sm btn-secondary cursor-pointer">Edit</summary>
+                                        <div class="absolute right-0 mt-2 z-20 w-80 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-lg p-3 shadow-xl">
+                                            <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}" class="space-y-2">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="update">
+                                                <label class="block text-xs text-[var(--text-muted)]">Email</label>
+                                                <input name="email" type="email" value="{{ u.email }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <label class="block text-xs text-[var(--text-muted)]">First Name</label>
+                                                <input name="first_name" type="text" value="{{ u.first_name }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <label class="block text-xs text-[var(--text-muted)]">Last Name</label>
+                                                <input name="last_name" type="text" value="{{ u.last_name }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <div class="flex items-center gap-3 text-xs">
+                                                    <label class="inline-flex items-center gap-1"><input type="checkbox" name="is_active" {% if u.is_active %}checked{% endif %}> Active</label>
+                                                    <label class="inline-flex items-center gap-1"><input type="checkbox" name="is_superuser" {% if u.is_superuser %}checked{% endif %}> Admin</label>
+                                                </div>
+                                                <button type="submit" class="btn btn-sm btn-primary w-full">Save</button>
+                                            </form>
+                                        </div>
+                                    </details>
+
+                                    <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="reset_password">
+                                        <button type="submit" class="btn btn-sm btn-secondary">Reset Password</button>
+                                    </form>
+
+                                    <details class="relative">
+                                        <summary class="btn btn-sm btn-secondary cursor-pointer">Set Temp Password</summary>
+                                        <div class="absolute right-0 mt-2 z-20 w-72 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-lg p-3 shadow-xl">
+                                            <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}" class="space-y-2">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="set_temp_password">
+                                                <input name="temp_password" type="text" minlength="8" placeholder="Temporary password" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <button type="submit" class="btn btn-sm btn-primary w-full">Set Temporary Password</button>
+                                            </form>
+                                        </div>
+                                    </details>
+
+                                    {% if u.pk != request.user.pk %}
+                                    <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}" onsubmit="return confirm('Disable this user?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="disable">
+                                        <button type="submit" class="btn btn-sm bg-yellow-700 hover:bg-yellow-800 text-white">Disable</button>
+                                    </form>
+
+                                    <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}" onsubmit="return confirm('Delete this user permanently?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="delete">
+                                        <button type="submit" class="btn btn-sm bg-red-700 hover:bg-red-800 text-white">Delete</button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="4" class="px-4 py-8 text-center text-[var(--text-muted)]">No users yet.</td></tr>
+                        <tr><td colspan="5" class="px-4 py-8 text-center text-[var(--text-muted)]">No users yet.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -97,6 +154,7 @@
                             <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Role</th>
                             <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Status</th>
                             <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Sent</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -114,9 +172,47 @@
                                 {% endif %}
                             </td>
                             <td class="px-4 py-3 text-[var(--text-muted)]">{{ inv.created_at|date:"M d, Y" }}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <details class="relative">
+                                        <summary class="btn btn-sm btn-secondary cursor-pointer">Edit</summary>
+                                        <div class="absolute right-0 mt-2 z-20 w-80 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-lg p-3 shadow-xl">
+                                            <form method="post" action="{% url 'production_ledger:invitation_action' pk=inv.pk %}" class="space-y-2">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="update">
+                                                <label class="block text-xs text-[var(--text-muted)]">Email</label>
+                                                <input name="email" type="email" value="{{ inv.email }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <label class="block text-xs text-[var(--text-muted)]">Name</label>
+                                                <input name="name" type="text" value="{{ inv.name }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <label class="block text-xs text-[var(--text-muted)]">Role</label>
+                                                <select name="role" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                    <option value="admin" {% if inv.role == 'admin' %}selected{% endif %}>Admin</option>
+                                                    <option value="host" {% if inv.role == 'host' %}selected{% endif %}>Host</option>
+                                                    <option value="producer" {% if inv.role == 'producer' %}selected{% endif %}>Producer</option>
+                                                    <option value="editor" {% if inv.role == 'editor' %}selected{% endif %}>Editor</option>
+                                                    <option value="guest" {% if inv.role == 'guest' %}selected{% endif %}>Guest</option>
+                                                </select>
+                                                <button type="submit" class="btn btn-sm btn-primary w-full">Save Invitation</button>
+                                            </form>
+                                        </div>
+                                    </details>
+
+                                    <form method="post" action="{% url 'production_ledger:invitation_action' pk=inv.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="resend">
+                                        <button type="submit" class="btn btn-sm btn-secondary">Resend</button>
+                                    </form>
+
+                                    <form method="post" action="{% url 'production_ledger:invitation_action' pk=inv.pk %}" onsubmit="return confirm('Delete this invitation?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="delete">
+                                        <button type="submit" class="btn btn-sm bg-red-700 hover:bg-red-800 text-white">Delete</button>
+                                    </form>
+                                </div>
+                            </td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="4" class="px-4 py-8 text-center text-[var(--text-muted)]">No invitations sent yet.</td></tr>
+                        <tr><td colspan="5" class="px-4 py-8 text-center text-[var(--text-muted)]">No invitations sent yet.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>

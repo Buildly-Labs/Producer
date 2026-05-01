@@ -1887,3 +1887,133 @@ class ReviewAccessRequestView(LoginRequiredMixin, View):
             messages.info(request, f'Declined request from {ar.name}.')
 
         return redirect(reverse('production_ledger:user_management') + '?tab=requests')
+
+
+class UserAccountActionView(LoginRequiredMixin, View):
+    """Admin actions for existing users: edit, disable, and password resets."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only admins can manage users.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        import secrets
+        import string
+        from django.contrib.auth.models import User
+
+        user = get_object_or_404(User, pk=kwargs['pk'])
+        action = request.POST.get('action', '').strip()
+
+        if action == 'update':
+            email = (request.POST.get('email', '') or '').strip().lower()
+            first_name = (request.POST.get('first_name', '') or '').strip()[:30]
+            last_name = (request.POST.get('last_name', '') or '').strip()[:150]
+            is_active = request.POST.get('is_active') == 'on'
+            is_superuser = request.POST.get('is_superuser') == 'on'
+
+            if email and User.objects.exclude(pk=user.pk).filter(email=email).exists():
+                messages.error(request, f'Email {email} is already in use by another user.')
+                return redirect(reverse('production_ledger:user_management') + '?tab=users')
+
+            if email:
+                user.email = email
+            user.first_name = first_name
+            user.last_name = last_name
+            user.is_active = is_active
+            user.is_superuser = is_superuser
+            user.is_staff = is_superuser
+            user.save()
+            messages.success(request, f'Updated user {user.username}.')
+
+        elif action == 'disable':
+            if user.pk == request.user.pk:
+                messages.error(request, 'You cannot disable your own account.')
+                return redirect(reverse('production_ledger:user_management') + '?tab=users')
+
+            user.is_active = False
+            user.save(update_fields=['is_active'])
+            messages.success(request, f'Disabled user {user.username}.')
+
+        elif action == 'delete':
+            if user.pk == request.user.pk:
+                messages.error(request, 'You cannot delete your own account.')
+                return redirect(reverse('production_ledger:user_management') + '?tab=users')
+
+            username = user.username
+            user.delete()
+            messages.success(request, f'Deleted user {username}.')
+
+        elif action in {'set_temp_password', 'reset_password'}:
+            temp_password = (request.POST.get('temp_password', '') or '').strip()
+            if action == 'reset_password' or not temp_password:
+                alphabet = string.ascii_letters + string.digits
+                temp_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+
+            if len(temp_password) < 8:
+                messages.error(request, 'Temporary password must be at least 8 characters.')
+                return redirect(reverse('production_ledger:user_management') + '?tab=users')
+
+            user.set_password(temp_password)
+            user.save()
+            messages.success(
+                request,
+                f'Temporary password for {user.username}: {temp_password}'
+            )
+        else:
+            messages.error(request, 'Unknown user action.')
+
+        return redirect(reverse('production_ledger:user_management') + '?tab=users')
+
+
+class InvitationActionView(LoginRequiredMixin, View):
+    """Admin actions for invitations: edit, delete, and resend."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only admins can manage invitations.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        from .models import Invitation
+        from .services.email import send_invitation_email
+
+        invitation = get_object_or_404(Invitation, pk=kwargs['pk'])
+        action = request.POST.get('action', '').strip()
+
+        if action == 'update':
+            email = (request.POST.get('email', '') or '').strip().lower()
+            name = (request.POST.get('name', '') or '').strip()[:200]
+            role = (request.POST.get('role', '') or '').strip()
+
+            if not email:
+                messages.error(request, 'Invitation email is required.')
+                return redirect(reverse('production_ledger:user_management') + '?tab=invitations')
+
+            valid_roles = {choice[0] for choice in Role.CHOICES}
+            if role and role not in valid_roles:
+                messages.error(request, 'Invalid invitation role.')
+                return redirect(reverse('production_ledger:user_management') + '?tab=invitations')
+
+            invitation.email = email
+            invitation.name = name
+            if role:
+                invitation.role = role
+            invitation.save()
+            messages.success(request, f'Updated invitation for {invitation.email}.')
+
+        elif action == 'delete':
+            target_email = invitation.email
+            invitation.delete()
+            messages.success(request, f'Deleted invitation for {target_email}.')
+
+        elif action == 'resend':
+            invite_link = request.build_absolute_uri(
+                reverse('production_ledger:accept_invite', kwargs={'token': invitation.token})
+            )
+            send_invitation_email(invitation, invite_link)
+            messages.success(request, f'Resent invitation to {invitation.email}.')
+        else:
+            messages.error(request, 'Unknown invitation action.')
+
+        return redirect(reverse('production_ledger:user_management') + '?tab=invitations')
