@@ -7,22 +7,19 @@ from django.db import migrations, models
 TABLE = "production_ledger_mediaasset"
 
 
-def _column_exists(cursor, column):
-    cursor.execute(
-        "SELECT COUNT(*) FROM information_schema.COLUMNS "
-        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s",
-        [TABLE, column],
-    )
-    return cursor.fetchone()[0] > 0
+def _column_exists(schema_editor, column):
+    with schema_editor.connection.cursor() as cursor:
+        description = schema_editor.connection.introspection.get_table_description(cursor, TABLE)
+    return any(col.name == column for col in description)
 
 
 def add_label_and_platform(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
-        if not _column_exists(cursor, "label"):
+        if not _column_exists(schema_editor, "label"):
             cursor.execute(
                 "ALTER TABLE `%s` ADD COLUMN `label` VARCHAR(200) NOT NULL DEFAULT ''" % TABLE
             )
-        if not _column_exists(cursor, "platform"):
+        if not _column_exists(schema_editor, "platform"):
             cursor.execute(
                 "ALTER TABLE `%s` ADD COLUMN `platform` VARCHAR(30) NOT NULL DEFAULT ''" % TABLE
             )
@@ -30,9 +27,9 @@ def add_label_and_platform(apps, schema_editor):
 
 def remove_label_and_platform(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
-        if _column_exists(cursor, "label"):
+        if _column_exists(schema_editor, "label"):
             cursor.execute("ALTER TABLE `%s` DROP COLUMN `label`" % TABLE)
-        if _column_exists(cursor, "platform"):
+        if _column_exists(schema_editor, "platform"):
             cursor.execute("ALTER TABLE `%s` DROP COLUMN `platform`" % TABLE)
 
 

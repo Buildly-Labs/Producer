@@ -7,26 +7,23 @@ from django.db import migrations, models
 TABLE = "production_ledger_segment"
 
 
-def _column_exists(cursor, column_name):
-    cursor.execute(
-        "SELECT COUNT(*) FROM information_schema.COLUMNS "
-        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s",
-        [TABLE, column_name],
-    )
-    return cursor.fetchone()[0] > 0
+def _column_exists(schema_editor, column_name):
+    with schema_editor.connection.cursor() as cursor:
+        description = schema_editor.connection.introspection.get_table_description(cursor, TABLE)
+    return any(col.name == column_name for col in description)
 
 
 def add_live_recording_fields_if_missing(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
-        if not _column_exists(cursor, "completed_at"):
+        if not _column_exists(schema_editor, "completed_at"):
             cursor.execute(
                 "ALTER TABLE `%s` ADD COLUMN `completed_at` DATETIME NULL" % TABLE
             )
-        if not _column_exists(cursor, "is_completed"):
+        if not _column_exists(schema_editor, "is_completed"):
             cursor.execute(
                 "ALTER TABLE `%s` ADD COLUMN `is_completed` TINYINT(1) NOT NULL DEFAULT 0" % TABLE
             )
-        if not _column_exists(cursor, "live_notes"):
+        if not _column_exists(schema_editor, "live_notes"):
             cursor.execute(
                 "ALTER TABLE `%s` ADD COLUMN `live_notes` LONGTEXT NOT NULL" % TABLE
             )
@@ -34,11 +31,11 @@ def add_live_recording_fields_if_missing(apps, schema_editor):
 
 def remove_live_recording_fields_if_present(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
-        if _column_exists(cursor, "live_notes"):
+        if _column_exists(schema_editor, "live_notes"):
             cursor.execute("ALTER TABLE `%s` DROP COLUMN `live_notes`" % TABLE)
-        if _column_exists(cursor, "is_completed"):
+        if _column_exists(schema_editor, "is_completed"):
             cursor.execute("ALTER TABLE `%s` DROP COLUMN `is_completed`" % TABLE)
-        if _column_exists(cursor, "completed_at"):
+        if _column_exists(schema_editor, "completed_at"):
             cursor.execute("ALTER TABLE `%s` DROP COLUMN `completed_at`" % TABLE)
 
 

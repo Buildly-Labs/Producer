@@ -3,39 +3,40 @@
 # operations skip tables that already exist in the database.
 
 from django.conf import settings
+from django.apps import apps as global_apps
 from django.db import migrations, models
 import django.db.models.deletion
 import uuid
 
 
-def _table_exists(cursor, table_name):
-    cursor.execute(
-        "SELECT COUNT(*) FROM information_schema.TABLES "
-        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
-        [table_name],
-    )
-    return cursor.fetchone()[0] > 0
+def _table_exists(schema_editor, table_name):
+    return table_name in schema_editor.connection.introspection.table_names()
 
 
 def create_models_if_not_exist(apps, schema_editor):
-    with schema_editor.connection.cursor() as cursor:
-        invitation_exists = _table_exists(cursor, 'production_ledger_invitation')
-        access_request_exists = _table_exists(cursor, 'production_ledger_accessrequest')
+    invitation_exists = _table_exists(schema_editor, 'production_ledger_invitation')
+    access_request_exists = _table_exists(schema_editor, 'production_ledger_accessrequest')
 
     if not invitation_exists:
-        Invitation = apps.get_model('production_ledger', 'Invitation')
+        try:
+            Invitation = apps.get_model('production_ledger', 'Invitation')
+        except LookupError:
+            Invitation = global_apps.get_model('production_ledger', 'Invitation')
         schema_editor.create_model(Invitation)
 
     if not access_request_exists:
-        AccessRequest = apps.get_model('production_ledger', 'AccessRequest')
+        try:
+            AccessRequest = apps.get_model('production_ledger', 'AccessRequest')
+        except LookupError:
+            AccessRequest = global_apps.get_model('production_ledger', 'AccessRequest')
         schema_editor.create_model(AccessRequest)
 
 
 def drop_models_if_exist(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
-        if _table_exists(cursor, 'production_ledger_accessrequest'):
+        if _table_exists(schema_editor, 'production_ledger_accessrequest'):
             cursor.execute("DROP TABLE `production_ledger_accessrequest`")
-        if _table_exists(cursor, 'production_ledger_invitation'):
+        if _table_exists(schema_editor, 'production_ledger_invitation'):
             cursor.execute("DROP TABLE `production_ledger_invitation`")
 
 

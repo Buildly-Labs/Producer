@@ -3,17 +3,17 @@
 from django.db import migrations
 
 
+def _column_exists(schema_editor, table_name, column_name):
+    with schema_editor.connection.cursor() as cursor:
+        description = schema_editor.connection.introspection.get_table_description(cursor, table_name)
+    return any(col.name == column_name for col in description)
+
+
 def drop_episode_type_old(apps, schema_editor):
     """Drop episode_type_old column if it still exists in the database."""
-    connection = schema_editor.connection
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT COUNT(*) FROM information_schema.columns "
-            "WHERE table_schema = DATABASE() "
-            "AND table_name = 'production_ledger_episode' "
-            "AND column_name = 'episode_type_old'"
-        )
-        if cursor.fetchone()[0] > 0:
+    table_name = "production_ledger_episode"
+    if _column_exists(schema_editor, table_name, "episode_type_old"):
+        with schema_editor.connection.cursor() as cursor:
             cursor.execute(
                 "ALTER TABLE production_ledger_episode DROP COLUMN episode_type_old"
             )

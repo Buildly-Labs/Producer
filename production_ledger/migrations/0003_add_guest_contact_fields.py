@@ -3,34 +3,25 @@
 from django.db import migrations, models
 
 
+def _has_column(schema_editor, table_name, column_name):
+    """Database-agnostic column existence check."""
+    with schema_editor.connection.cursor() as cursor:
+        description = schema_editor.connection.introspection.get_table_description(cursor, table_name)
+    return any(col.name == column_name for col in description)
+
+
 def add_guest_contact_fields(apps, schema_editor):
     """Add email and phone columns only if they don't already exist."""
+    table_name = "production_ledger_guest"
+
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT COUNT(*)
-            FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'production_ledger_guest'
-              AND COLUMN_NAME = 'email'
-            """
-        )
-        if cursor.fetchone()[0] == 0:
+        if not _has_column(schema_editor, table_name, "email"):
             cursor.execute(
                 "ALTER TABLE production_ledger_guest "
                 "ADD COLUMN email varchar(254) NOT NULL DEFAULT ''"
             )
 
-        cursor.execute(
-            """
-            SELECT COUNT(*)
-            FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'production_ledger_guest'
-              AND COLUMN_NAME = 'phone'
-            """
-        )
-        if cursor.fetchone()[0] == 0:
+        if not _has_column(schema_editor, table_name, "phone"):
             cursor.execute(
                 "ALTER TABLE production_ledger_guest "
                 "ADD COLUMN phone varchar(50) NOT NULL DEFAULT ''"
