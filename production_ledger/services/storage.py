@@ -5,11 +5,11 @@ Provides an S3-compatible interface for uploading, downloading, and managing
 media files (video, audio, podcast feeds, rendered shorts) on DO Spaces.
 
 Uses the same variable names as the rest of the project:
-    AWS_STORAGE_BUCKET_NAME = 'collab'
+    AWS_STORAGE_BUCKET_NAME = 'cms-static'
     AWS_ACCESS_KEY_ID       = 'DO00MW9V6QPPJKVCGHYA'
     AWS_SECRET_ACCESS_KEY   = os.environ.get("SPACES_SECRET")
-    AWS_S3_CUSTOM_DOMAIN    = 'cms-static.nyc3.digitaloceanspaces.com/collab'
-    AWS_S3_ENDPOINT_URL     = 'https://cms-static.nyc3.digitaloceanspaces.com'
+    AWS_S3_CUSTOM_DOMAIN    = 'cms-static.nyc3.digitaloceanspaces.com'
+    AWS_S3_ENDPOINT_URL     = 'https://nyc3.digitaloceanspaces.com'
 """
 import hashlib
 import logging
@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Spaces config — mirrors existing project settings
 # ---------------------------------------------------------------------------
-AWS_STORAGE_BUCKET_NAME = 'collab'
-AWS_ACCESS_KEY_ID       = 'DO00MW9V6QPPJKVCGHYA'
-AWS_SECRET_ACCESS_KEY   = os.environ.get('SPACES_SECRET')
-AWS_S3_CUSTOM_DOMAIN    = 'cms-static.nyc3.digitaloceanspaces.com' + '/' + AWS_STORAGE_BUCKET_NAME
-AWS_S3_ENDPOINT_URL     = 'https://cms-static.nyc3.digitaloceanspaces.com'
-_SPACES_REGION          = 'nyc3'
+AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME', 'cms-static')
+AWS_ACCESS_KEY_ID       = os.getenv('AWS_ACCESS_KEY_ID', 'DO00MW9V6QPPJKVCGHYA')
+AWS_SECRET_ACCESS_KEY   = os.getenv('SPACES_SECRET')
+AWS_S3_CUSTOM_DOMAIN    = os.getenv('AWS_S3_CUSTOM_DOMAIN', 'cms-static.nyc3.digitaloceanspaces.com')
+AWS_S3_ENDPOINT_URL     = os.getenv('AWS_S3_ENDPOINT_URL', 'https://nyc3.digitaloceanspaces.com')
+_SPACES_REGION          = os.getenv('AWS_REGION', 'nyc3')
 
 
 def _get_spaces_config() -> dict:
@@ -180,27 +180,27 @@ def delete_file(key: str) -> None:
 
 def episode_audio_key(organization_uuid: str, episode_id: str, filename: str) -> str:
     """Standard key path for episode audio files."""
-    return f"producer/{organization_uuid}/episodes/{episode_id}/audio/{filename}"
+    return f"foundry/producer/{organization_uuid}/episodes/{episode_id}/audio/{filename}"
 
 
 def episode_video_key(organization_uuid: str, episode_id: str, filename: str) -> str:
     """Standard key path for episode video files."""
-    return f"producer/{organization_uuid}/episodes/{episode_id}/video/{filename}"
+    return f"foundry/producer/{organization_uuid}/episodes/{episode_id}/video/{filename}"
 
 
 def short_video_key(organization_uuid: str, episode_id: str, short_id: str, filename: str) -> str:
     """Standard key path for rendered short videos."""
-    return f"producer/{organization_uuid}/episodes/{episode_id}/shorts/{short_id}/{filename}"
+    return f"foundry/producer/{organization_uuid}/episodes/{episode_id}/shorts/{short_id}/{filename}"
 
 
 def podcast_feed_key(organization_uuid: str, show_slug: str) -> str:
     """Standard key path for the RSS podcast feed XML."""
-    return f"producer/{organization_uuid}/feeds/{show_slug}/feed.xml"
+    return f"foundry/producer/{organization_uuid}/feeds/{show_slug}/feed.xml"
 
 
 def media_asset_key(organization_uuid: str, episode_id: str, unique_prefix: str, filename: str) -> str:
     """Standard key path for direct-uploaded media assets."""
-    return f"producer/{organization_uuid}/episodes/{episode_id}/media/{unique_prefix}_{filename}"
+    return f"foundry/producer/{organization_uuid}/episodes/{episode_id}/media/{unique_prefix}_{filename}"
 
 
 # ---------------------------------------------------------------------------

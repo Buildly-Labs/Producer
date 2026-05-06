@@ -5,6 +5,8 @@ All views enforce organization scoping and RBAC.
 """
 import json
 import logging
+import os
+import uuid
 import zipfile
 from io import BytesIO
 
@@ -32,6 +34,7 @@ from .constants import (
     ArtifactType,
     ClipPriority,
     EpisodeStatus,
+    IngestionStatus,
     QuoteApproval,
     Role,
     SourceType,
@@ -786,20 +789,58 @@ class EpisodeMediaView(EpisodeTabMixin, TemplateView):
         
         # Determine which form was submitted based on form_type or file presence
         form_type = request.POST.get('form_type', '')
+        is_upload = form_type == 'upload' or 'file' in request.FILES
         
-        if form_type == 'upload' or 'file' in request.FILES:
+        if is_upload:
             form = MediaAssetUploadForm(request.POST, request.FILES)
         else:
             form = MediaAssetLinkForm(request.POST)
         
         if form.is_valid():
             try:
-                asset = form.save(commit=False)
-                asset.episode = episode
-                asset.organization_uuid = episode.organization_uuid
-                asset.ingested_by = request.user
-                asset.created_by = request.user
-                asset.save()
+                if is_upload:
+                    from .services import storage  # noqa: PLC0415
+
+                    uploaded_file = form.cleaned_data['file']
+                    original_name = os.path.basename(uploaded_file.name)
+                    safe_name = original_name.replace(' ', '_')
+                    object_key = storage.media_asset_key(
+                        str(episode.organization_uuid),
+                        str(episode.pk),
+                        uuid.uuid4().hex[:8],
+                        safe_name,
+                    )
+
+                    public_url = storage.upload_file(
+                        uploaded_file,
+                        object_key,
+                        content_type=uploaded_file.content_type or 'application/octet-stream',
+                        public=True,
+                        extra_metadata={'episode-id': str(episode.pk)},
+                    )
+
+                    asset = MediaAsset(
+                        episode=episode,
+                        organization_uuid=episode.organization_uuid,
+                        asset_type=form.cleaned_data['asset_type'],
+                        source_type=SourceType.EXTERNAL_LINK,
+                        external_url=public_url,
+                        label=form.cleaned_data.get('label') or os.path.splitext(original_name)[0],
+                        filename=original_name,
+                        content_type=uploaded_file.content_type or 'application/octet-stream',
+                        file_size=uploaded_file.size,
+                        ingestion_status=IngestionStatus.READY,
+                        ingested_by=request.user,
+                        created_by=request.user,
+                    )
+                    asset.save()
+                else:
+                    asset = form.save(commit=False)
+                    asset.episode = episode
+                    asset.organization_uuid = episode.organization_uuid
+                    asset.ingested_by = request.user
+                    asset.created_by = request.user
+                    asset.save()
                 messages.success(request, 'Media asset added!')
             except (OperationalError, ProgrammingError):
                 logger.exception('Media asset save failed for episode=%s', episode.pk)
@@ -808,6 +849,9 @@ class EpisodeMediaView(EpisodeTabMixin, TemplateView):
                     'Could not save this media asset because the database schema is out of sync. '
                     'Please re-run Producer migrations.',
                 )
+            except Exception:
+                logger.exception('Media upload failed for episode=%s', episode.pk)
+                messages.error(request, 'Upload failed while transferring to cloud storage.')
         else:
             for field, errors in form.errors.items():
                 for error in errors:
