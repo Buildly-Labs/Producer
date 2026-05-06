@@ -25,6 +25,8 @@ schema_view = get_schema_view(
 urlpatterns = [
     # Static files
     re_path(r'^static/(?P<path>.*)$', serve, {'document_root': settings.STATIC_ROOT}),
+    # Media files (local dev only; production uses DO Spaces)
+    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
     
     # API Documentation
     re_path(r'^docs/swagger(?P<format>\.json|\.yaml)$',

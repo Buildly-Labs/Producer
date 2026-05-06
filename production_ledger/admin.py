@@ -423,3 +423,33 @@ class InvitationAdmin(admin.ModelAdmin):
     list_filter = ('role',)
     search_fields = ('email', 'name')
     readonly_fields = ('id', 'token', 'created_at')
+
+
+# =============================================================================
+# DISTRIBUTION & SHORTS
+# =============================================================================
+
+from .models import PodcastFeedConfig, PodcastDistribution, VideoShort
+
+
+@admin.register(PodcastFeedConfig)
+class PodcastFeedConfigAdmin(admin.ModelAdmin):
+    list_display = ('show', 'feed_title', 'feed_public_url', 'feed_last_built')
+    search_fields = ('show__name', 'feed_title')
+    readonly_fields = ('id', 'created_at', 'updated_at', 'feed_last_built')
+
+
+@admin.register(PodcastDistribution)
+class PodcastDistributionAdmin(admin.ModelAdmin):
+    list_display = ('episode', 'platform', 'status', 'submitted_at', 'went_live_at')
+    list_filter = ('platform', 'status')
+    search_fields = ('episode__title',)
+    readonly_fields = ('id', 'created_at', 'updated_at', 'submitted_at', 'went_live_at')
+
+
+@admin.register(VideoShort)
+class VideoShortAdmin(admin.ModelAdmin):
+    list_display = ('title', 'episode', 'aspect_ratio', 'status', 'start_formatted', 'end_formatted')
+    list_filter = ('aspect_ratio', 'status')
+    search_fields = ('title', 'episode__title')
+    readonly_fields = ('id', 'created_at', 'updated_at', 'render_started_at', 'render_completed_at')

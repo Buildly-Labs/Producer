@@ -152,6 +152,18 @@ STATICFILES_DIRS = [
     os.path.join(os.path.dirname(BASE_DIR), 'static'),
 ]
 
+# Media files (user uploads — audio/video not yet served via DO Spaces)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.getenv('MEDIA_ROOT', os.path.join(os.path.dirname(BASE_DIR), 'media'))
+
+# DigitalOcean Spaces (shared with storage service)
+# Secret is read at runtime; key/bucket/endpoint are project constants.
+SPACES_SECRET = os.environ.get('SPACES_SECRET', '')
+
+# DigitalOcean GenAI (OpenAI-compatible endpoint)
+DIGITALOCEAN_LLM_API_KEY = os.environ.get('DIGITALOCEAN_LLM_API_KEY')
+DIGITALOCEAN_LLM_ENDPOINT = os.environ.get('DIGITALOCEAN_LLM_ENDPOINT')
+
 
 # Rest Framework
 

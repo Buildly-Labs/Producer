@@ -13,7 +13,8 @@ WORKDIR /code
 
 RUN apt update \
     && apt -y upgrade \
-    && apt install -y python3 python3-pip poppler-utils libsm6 libxext6 libxrender-dev postgresql netcat-traditional
+    && apt install -y python3 python3-pip poppler-utils libsm6 libxext6 libxrender-dev postgresql netcat-traditional \
+                      ffmpeg
 
 # Install the project requirements.
 RUN pip install --upgrade pip

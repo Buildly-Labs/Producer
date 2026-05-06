@@ -672,3 +672,597 @@ class ExportClipsAPI(APIView):
         
         content = export_clips_csv(episode)
         return Response({'csv': content})
+
+
+# =============================================================================
+# VIDEO UPLOAD + TRANSCRIPTION
+# =============================================================================
+
+class UploadVideoAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/upload-video/
+
+    Upload a video file to DO Spaces, create a MediaAsset, and optionally
+    auto-trigger transcription.
+
+    Form fields:
+        video       — multipart video file (required)
+        label       — display label (optional)
+        auto_transcribe — 'true' to immediately trigger Whisper (default: true)
+
+    Returns:
+        {media_asset_id, spaces_key, public_url, transcript_id (if transcribed)}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        from .models import MediaAsset  # noqa: PLC0415
+        from .constants import AssetType, IngestionStatus, SourceType  # noqa: PLC0415
+        from .services import storage, transcription as transcription_svc  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        video_file = request.FILES.get('video')
+        if not video_file:
+            return Response({'error': 'video file is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        label = request.data.get('label', video_file.name)
+        auto_transcribe = request.data.get('auto_transcribe', 'true').lower() != 'false'
+
+        # Upload to DO Spaces
+        spaces_key = storage.episode_video_key(
+            str(episode.organization_uuid),
+            str(episode.id),
+            video_file.name,
+        )
+        try:
+            public_url = storage.upload_file(
+                video_file,
+                spaces_key,
+                content_type=video_file.content_type or 'video/mp4',
+                public=True,
+                extra_metadata={'episode-id': str(episode.id)},
+            )
+        except Exception as exc:
+            return Response({'error': f'Upload failed: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # Create MediaAsset record
+        media_asset = MediaAsset.objects.create(
+            episode=episode,
+            organization_uuid=episode.organization_uuid,
+            asset_type=AssetType.VIDEO,
+            source_type=SourceType.EXTERNAL_LINK,
+            external_url=public_url,
+            label=label,
+            filename=video_file.name,
+            content_type=video_file.content_type or 'video/mp4',
+            file_size=video_file.size,
+            ingestion_status=IngestionStatus.READY,
+            ingested_by=request.user,
+            created_by=request.user,
+            updated_by=request.user,
+        )
+
+        result = {
+            'media_asset_id': str(media_asset.id),
+            'spaces_key': spaces_key,
+            'public_url': public_url,
+            'transcript_id': None,
+        }
+
+        # Optionally trigger transcription
+        if auto_transcribe:
+            try:
+                transcript = transcription_svc.transcribe_media_asset(media_asset, user=request.user)
+                result['transcript_id'] = str(transcript.id)
+            except Exception as exc:
+                result['transcription_error'] = str(exc)
+
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
+class TranscribeMediaAssetAPI(APIView):
+    """
+    POST /api/media/<pk>/transcribe/
+
+    Trigger Whisper transcription on an existing MediaAsset.
+
+    Returns:
+        {transcript_id, revision, provider, model}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .models import MediaAsset  # noqa: PLC0415
+        from .services import transcription as transcription_svc  # noqa: PLC0415
+
+        media_asset = get_object_or_404(MediaAsset, pk=pk)
+        if not has_minimum_role(request.user, media_asset.episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            transcript = transcription_svc.transcribe_media_asset(media_asset, user=request.user)
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        normalized = transcript.normalized_json or {}
+        return Response({
+            'transcript_id': str(transcript.id),
+            'revision': transcript.revision,
+            'provider': normalized.get('provider'),
+            'model': normalized.get('model'),
+            'duration_seconds': normalized.get('duration'),
+            'segment_count': len(normalized.get('segments', [])),
+        }, status=status.HTTP_201_CREATED)
+
+
+# =============================================================================
+# PODCAST DISTRIBUTION
+# =============================================================================
+
+class PodcastFeedConfigAPI(APIView):
+    """
+    GET  /api/shows/<show_id>/podcast-feed/  — retrieve feed config
+    PUT  /api/shows/<show_id>/podcast-feed/  — update feed config fields
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _get_show(self, show_id, user):
+        show = get_object_or_404(Show, pk=show_id)
+        if not has_minimum_role(user, show, Role.PRODUCER):
+            return None, Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+        return show, None
+
+    def get(self, request, show_id):
+        from .models import PodcastFeedConfig  # noqa: PLC0415
+        from .services.distribution import _get_feed_config  # noqa: PLC0415
+
+        show, err = self._get_show(show_id, request.user)
+        if err:
+            return err
+        config = _get_feed_config(show)
+        return Response({
+            'id': str(config.id),
+            'show': str(show.id),
+            'feed_title': config.feed_title,
+            'feed_description': config.feed_description,
+            'feed_language': config.feed_language,
+            'author_name': config.author_name,
+            'author_email': config.author_email,
+            'category': config.category,
+            'subcategory': config.subcategory,
+            'explicit': config.explicit,
+            'website_url': config.website_url,
+            'cover_art_url': config.cover_art_url,
+            'feed_public_url': config.feed_public_url,
+            'feed_last_built': config.feed_last_built,
+        })
+
+    def put(self, request, show_id):
+        from .services.distribution import _get_feed_config  # noqa: PLC0415
+
+        show, err = self._get_show(show_id, request.user)
+        if err:
+            return err
+        config = _get_feed_config(show)
+
+        updatable = [
+            'feed_title', 'feed_description', 'feed_language',
+            'author_name', 'author_email', 'category', 'subcategory',
+            'explicit', 'website_url', 'cover_art_url',
+        ]
+        for field in updatable:
+            if field in request.data:
+                setattr(config, field, request.data[field])
+        config.updated_by = request.user
+        config.save()
+        return Response({'status': 'updated', 'feed_public_url': config.feed_public_url})
+
+
+class RebuildPodcastFeedAPI(APIView):
+    """
+    POST /api/shows/<show_id>/podcast-feed/rebuild/
+
+    Regenerate and re-upload the RSS feed XML to DO Spaces.
+    Returns the new public feed URL.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, show_id):
+        from .services.distribution import build_and_publish_feed  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=show_id)
+        if not has_minimum_role(request.user, show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            feed_url = build_and_publish_feed(show, user=request.user)
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({'feed_url': feed_url, 'status': 'rebuilt'})
+
+
+class UploadCoverArtAPI(APIView):
+    """
+    POST /api/shows/<show_id>/podcast-feed/cover-art/
+
+    Upload podcast cover art to DO Spaces and update PodcastFeedConfig.
+    Apple Podcasts requires 1400×1400 – 3000×3000 px JPEG or PNG.
+
+    Form fields:
+        cover_art  — multipart image file (jpg / png)
+
+    Returns:
+        {cover_art_url}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, show_id):
+        from .services import storage  # noqa: PLC0415
+        from .services.distribution import _get_feed_config  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=show_id)
+        if not has_minimum_role(request.user, show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        image_file = request.FILES.get('cover_art')
+        if not image_file:
+            return Response({'error': 'cover_art file is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed_types = {'image/jpeg', 'image/png', 'image/jpg'}
+        if image_file.content_type not in allowed_types:
+            return Response(
+                {'error': f'cover_art must be JPEG or PNG, got {image_file.content_type}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        spaces_key = storage.cover_art_key(
+            str(show.organization_uuid), show.slug, image_file.name
+        )
+        try:
+            public_url = storage.upload_file(
+                image_file,
+                spaces_key,
+                content_type=image_file.content_type,
+                public=True,
+                extra_metadata={'show-slug': show.slug},
+            )
+        except Exception as exc:
+            return Response({'error': f'Upload failed: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        config = _get_feed_config(show)
+        config.cover_art_url = public_url
+        config.updated_by = request.user
+        config.save(update_fields=['cover_art_url', 'updated_by', 'updated_at'])
+
+        return Response({'cover_art_url': public_url}, status=status.HTTP_200_OK)
+
+
+class PodcastDistributionGuideAPI(APIView):
+    """
+    GET /api/shows/<show_id>/podcast-distribution-guide/
+
+    Returns a step-by-step guide for submitting the show's RSS feed to each
+    major podcast platform, including current distribution status.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, show_id):
+        from .services.distribution import get_platform_submission_guide  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=show_id)
+        if not has_minimum_role(request.user, show, Role.HOST):
+            return Response({'error': 'Host role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        guide = get_platform_submission_guide(show)
+        return Response({'show': str(show.id), 'platforms': guide})
+
+
+class PublishEpisodeAudioAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/publish-audio/
+
+    Upload episode audio to DO Spaces and create PodcastDistribution records
+    for all platforms.  Rebuilds the RSS feed automatically.
+
+    Form fields:
+        audio          — multipart audio file (mp3 / m4a required)
+        duration_seconds — integer (optional, auto-detected when possible)
+        rebuild_feed   — 'true' to also rebuild the RSS feed (default: true)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        from .services.distribution import build_and_publish_feed, publish_episode_audio  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        audio_file = request.FILES.get('audio')
+        if not audio_file:
+            return Response({'error': 'audio file is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        duration_seconds = int(request.data.get('duration_seconds', 0) or 0)
+        rebuild_feed = request.data.get('rebuild_feed', 'true').lower() != 'false'
+
+        try:
+            result = publish_episode_audio(
+                episode,
+                audio_file,
+                audio_file.name,
+                duration_seconds=duration_seconds,
+                user=request.user,
+            )
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        feed_url = None
+        if rebuild_feed:
+            try:
+                feed_url = build_and_publish_feed(episode.show, user=request.user)
+            except Exception as exc:
+                feed_url = f'Feed rebuild failed: {exc}'
+
+        return Response({
+            'audio_url': result['audio_url'],
+            'distribution_count': len(result['distributions']),
+            'feed_url': feed_url,
+        }, status=status.HTTP_201_CREATED)
+
+
+class EpisodeDistributionListAPI(APIView):
+    """
+    GET /api/episodes/<episode_id>/distributions/
+
+    List PodcastDistribution records for an episode (one per platform).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, episode_id):
+        from .models import PodcastDistribution  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.HOST):
+            return Response({'error': 'Host role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        dists = PodcastDistribution.objects.filter(episode=episode).order_by('platform')
+        data = [
+            {
+                'id': str(d.id),
+                'platform': d.platform,
+                'platform_label': d.get_platform_display(),
+                'status': d.status,
+                'audio_public_url': d.audio_public_url,
+                'platform_url': d.platform_url,
+                'submitted_at': d.submitted_at,
+                'went_live_at': d.went_live_at,
+                'error_message': d.error_message,
+            }
+            for d in dists
+        ]
+        return Response({'episode': str(episode.id), 'distributions': data})
+
+
+# =============================================================================
+# VIDEO SHORTS
+# =============================================================================
+
+class VideoShortListAPI(APIView):
+    """
+    GET /api/episodes/<episode_id>/shorts/
+
+    List all VideoShorts for an episode.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, episode_id):
+        from .models import VideoShort  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.HOST):
+            return Response({'error': 'Host role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        shorts = VideoShort.objects.filter(episode=episode).order_by('start_ms')
+        data = [
+            {
+                'id': str(s.id),
+                'title': s.title,
+                'caption': s.caption,
+                'hashtags': s.hashtags,
+                'start_ms': s.start_ms,
+                'end_ms': s.end_ms,
+                'start_formatted': s.start_formatted,
+                'end_formatted': s.end_formatted,
+                'duration_ms': s.duration_ms,
+                'aspect_ratio': s.aspect_ratio,
+                'status': s.status,
+                'public_url': s.public_url,
+                'shareable_link': s.shareable_link,
+                'error_message': s.error_message,
+            }
+            for s in shorts
+        ]
+        return Response({'episode': str(episode.id), 'shorts': data})
+
+
+class IdentifyShortsAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/shorts/identify/
+
+    Use AI to identify compelling clip moments and queue VideoShort objects.
+
+    Body (JSON):
+        aspect_ratio   — '9:16' | '1:1' | '16:9' (default: '9:16')
+        max_clips      — integer 1-10 (default: 5)
+        transcript_id  — UUID of specific transcript to use (optional)
+
+    Returns:
+        {queued: [{id, title, start_ms, end_ms, status}, ...]}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        from .models import Transcript, VideoShort  # noqa: PLC0415
+        from .services.shorts import identify_and_queue_shorts  # noqa: PLC0415
+        from .constants import ShortAspectRatio  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        aspect_ratio = request.data.get('aspect_ratio', ShortAspectRatio.VERTICAL)
+        valid_ratios = [r for r, _ in ShortAspectRatio.CHOICES]
+        if aspect_ratio not in valid_ratios:
+            return Response({'error': f'aspect_ratio must be one of {valid_ratios}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_clips = int(request.data.get('max_clips', 5))
+        if not 1 <= max_clips <= 10:
+            return Response({'error': 'max_clips must be between 1 and 10.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        transcript = None
+        transcript_id = request.data.get('transcript_id')
+        if transcript_id:
+            transcript = get_object_or_404(Transcript, pk=transcript_id, episode=episode)
+
+        try:
+            video_shorts = identify_and_queue_shorts(
+                episode,
+                transcript=transcript,
+                aspect_ratio=aspect_ratio,
+                max_clips=max_clips,
+                user=request.user,
+            )
+        except RuntimeError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        data = [
+            {'id': str(s.id), 'title': s.title, 'start_ms': s.start_ms, 'end_ms': s.end_ms, 'status': s.status}
+            for s in video_shorts
+        ]
+        return Response({'queued': data, 'count': len(data)}, status=status.HTTP_201_CREATED)
+
+
+class VideoShortDetailAPI(APIView):
+    """
+    GET  /api/shorts/<pk>/  — retrieve a VideoShort
+    PATCH /api/shorts/<pk>/ — update title, caption, hashtags
+    DELETE /api/shorts/<pk>/ — delete
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _get_short(self, pk, user, min_role=Role.HOST):
+        from .models import VideoShort  # noqa: PLC0415
+
+        short = get_object_or_404(VideoShort, pk=pk)
+        if not has_minimum_role(user, short.episode.show, min_role):
+            return None, Response({'error': 'Insufficient role.'}, status=status.HTTP_403_FORBIDDEN)
+        return short, None
+
+    def get(self, request, pk):
+        short, err = self._get_short(pk, request.user)
+        if err:
+            return err
+        return Response({
+            'id': str(short.id),
+            'title': short.title,
+            'caption': short.caption,
+            'hashtags': short.hashtags,
+            'start_ms': short.start_ms,
+            'end_ms': short.end_ms,
+            'start_formatted': short.start_formatted,
+            'end_formatted': short.end_formatted,
+            'duration_ms': short.duration_ms,
+            'aspect_ratio': short.aspect_ratio,
+            'status': short.status,
+            'public_url': short.public_url,
+            'shareable_link': short.shareable_link,
+            'file_size': short.file_size,
+            'duration_seconds': short.duration_seconds,
+            'render_completed_at': short.render_completed_at,
+            'error_message': short.error_message,
+        })
+
+    def patch(self, request, pk):
+        short, err = self._get_short(pk, request.user, min_role=Role.PRODUCER)
+        if err:
+            return err
+        for field in ('title', 'caption', 'hashtags'):
+            if field in request.data:
+                setattr(short, field, request.data[field])
+        short.updated_by = request.user
+        short.save()
+        return Response({'status': 'updated'})
+
+    def delete(self, request, pk):
+        short, err = self._get_short(pk, request.user, min_role=Role.PRODUCER)
+        if err:
+            return err
+        short.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RenderShortAPI(APIView):
+    """
+    POST /api/shorts/<pk>/render/
+
+    Render a single VideoShort using ffmpeg and upload to DO Spaces.
+    The episode must have at least one video MediaAsset stored (with an
+    external_url pointing at a downloadable video).
+
+    Returns:
+        {status, public_url, shareable_link, duration_seconds, file_size}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .models import VideoShort  # noqa: PLC0415
+        from .services.shorts import render_short  # noqa: PLC0415
+
+        short = get_object_or_404(VideoShort, pk=pk)
+        if not has_minimum_role(request.user, short.episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            public_url = render_short(short, user=request.user)
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        short.refresh_from_db()
+        return Response({
+            'status': short.status,
+            'public_url': short.public_url,
+            'shareable_link': short.shareable_link,
+            'duration_seconds': short.duration_seconds,
+            'file_size': short.file_size,
+        })
+
+
+class RenderAllShortsAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/shorts/render-all/
+
+    Render all QUEUED VideoShorts for an episode in sequence.
+
+    Returns:
+        {results: [{short_id, title, status, public_url, error}, ...]}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        from .services.shorts import render_all_queued_shorts  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            results = render_all_queued_shorts(episode, user=request.user)
+        except RuntimeError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        return Response({'results': results, 'count': len(results)})
+

@@ -18,14 +18,18 @@ from .constants import (
     AssetType,
     ClipPriority,
     DEFAULT_CHECKLIST_ITEMS,
+    DistributionStatus,
     EpisodeStatus,
     GuestRole,
     IngestionStatus,
     MediaPlatform,
+    PodcastPlatform,
     QuoteApproval,
     RecordingContext,
     Role,
     SegmentOwner,
+    ShortAspectRatio,
+    ShortStatus,
     SourceType,
     TranscriptFormat,
     TranscriptSourceType,
@@ -896,6 +900,209 @@ class ShowNoteDraft(BaseModel):
 
     def __str__(self):
         return f"Draft for {self.episode.title}"
+
+
+# =============================================================================
+# PODCAST FEED CONFIG (per-Show)
+# =============================================================================
+
+class PodcastFeedConfig(BaseModel):
+    """
+    Podcast RSS feed configuration for a Show.
+    One per show. The generated RSS feed is hosted on DO Spaces and submitted
+    to podcast directories.
+    """
+    show = models.OneToOneField(Show, on_delete=models.CASCADE, related_name='podcast_feed_config')
+
+    # Feed metadata
+    feed_title = models.CharField(max_length=255, blank=True, help_text="Podcast title (defaults to show name)")
+    feed_description = models.TextField(blank=True, help_text="Podcast description / summary")
+    feed_language = models.CharField(max_length=10, default='en', help_text="BCP-47 language code, e.g. 'en'")
+    author_name = models.CharField(max_length=255, blank=True)
+    author_email = models.EmailField(blank=True)
+    category = models.CharField(max_length=100, default='Technology', help_text="iTunes top-level category")
+    subcategory = models.CharField(max_length=100, blank=True)
+    explicit = models.BooleanField(default=False)
+    website_url = models.URLField(blank=True)
+
+    # Cover art (DO Spaces public URL)
+    cover_art_url = models.URLField(blank=True, help_text="Podcast cover art (min 1400×1400 px, max 3000×3000 px)")
+
+    # DO Spaces path where feed XML is stored
+    feed_spaces_key = models.CharField(max_length=500, blank=True, help_text="Key/path within the DO Spaces bucket")
+    feed_public_url = models.URLField(blank=True, help_text="Public CDN URL of the RSS feed XML")
+
+    # Timestamps
+    feed_last_built = models.DateTimeField(null=True, blank=True, help_text="When the feed was last re-built and uploaded")
+
+    class Meta:
+        verbose_name = "Podcast Feed Config"
+        verbose_name_plural = "Podcast Feed Configs"
+
+    def __str__(self):
+        return f"Feed config for {self.show.name}"
+
+
+# =============================================================================
+# PODCAST DISTRIBUTION (per-Episode, per-Platform)
+# =============================================================================
+
+class PodcastDistribution(BaseModel):
+    """
+    Tracks the distribution status of an episode on each podcast platform.
+    When the episode RSS item is published and the feed is re-built, each
+    platform entry moves to SUBMITTED then eventually LIVE.
+    """
+    episode = models.ForeignKey(Episode, on_delete=models.CASCADE, related_name='distributions')
+    platform = models.CharField(max_length=30, choices=PodcastPlatform.CHOICES)
+
+    status = models.CharField(
+        max_length=20,
+        choices=DistributionStatus.CHOICES,
+        default=DistributionStatus.PENDING,
+    )
+
+    # Direct episode audio on DO Spaces
+    audio_spaces_key = models.CharField(max_length=500, blank=True, help_text="DO Spaces key for the episode audio file")
+    audio_public_url = models.URLField(blank=True, help_text="Public URL of the episode audio on DO Spaces / CDN")
+    audio_file_size = models.BigIntegerField(null=True, blank=True, help_text="Audio file size in bytes")
+    audio_duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    audio_content_type = models.CharField(max_length=50, default='audio/mpeg')
+
+    # Platform-specific identifiers returned after submission
+    platform_episode_id = models.CharField(max_length=255, blank=True)
+    platform_url = models.URLField(blank=True, help_text="URL of this episode on the platform once live")
+
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    went_live_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = "Podcast Distribution"
+        verbose_name_plural = "Podcast Distributions"
+        unique_together = [['episode', 'platform']]
+        indexes = [
+            models.Index(fields=['organization_uuid', 'episode']),
+            models.Index(fields=['organization_uuid', 'platform', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.episode.title} → {self.get_platform_display()} ({self.status})"
+
+    def mark_submitted(self):
+        self.status = DistributionStatus.SUBMITTED
+        self.submitted_at = timezone.now()
+        self.save()
+
+    def mark_live(self, platform_url='', platform_episode_id=''):
+        self.status = DistributionStatus.LIVE
+        self.went_live_at = timezone.now()
+        if platform_url:
+            self.platform_url = platform_url
+        if platform_episode_id:
+            self.platform_episode_id = platform_episode_id
+        self.save()
+
+
+# =============================================================================
+# VIDEO SHORT
+# =============================================================================
+
+class VideoShort(BaseModel):
+    """
+    A rendered short-form video clip derived from an episode (for TikTok, Reels, Shorts, etc.).
+    Each short corresponds to a ClipMoment but also carries the rendered file stored in DO Spaces.
+    Shareable links are generated from the CDN URL.
+    """
+    episode = models.ForeignKey(Episode, on_delete=models.CASCADE, related_name='video_shorts')
+    clip_moment = models.ForeignKey(
+        ClipMoment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='video_shorts',
+        help_text="Source clip moment this short was rendered from",
+    )
+    source_media_asset = models.ForeignKey(
+        MediaAsset,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='video_shorts',
+        help_text="Source media asset used for rendering",
+    )
+
+    title = models.CharField(max_length=255)
+    caption = models.TextField(blank=True, help_text="Platform caption / description for the short")
+    hashtags = models.JSONField(default=list, blank=True, help_text="List of hashtag strings")
+
+    # Timing (copied from ClipMoment or set manually)
+    start_ms = models.PositiveIntegerField(help_text="Start time in milliseconds")
+    end_ms = models.PositiveIntegerField(help_text="End time in milliseconds")
+
+    aspect_ratio = models.CharField(
+        max_length=10,
+        choices=ShortAspectRatio.CHOICES,
+        default=ShortAspectRatio.VERTICAL,
+    )
+
+    # Render / upload status
+    status = models.CharField(
+        max_length=20,
+        choices=ShortStatus.CHOICES,
+        default=ShortStatus.QUEUED,
+    )
+    error_message = models.TextField(blank=True)
+
+    # DO Spaces storage
+    spaces_key = models.CharField(max_length=500, blank=True, help_text="DO Spaces key for the rendered video")
+    public_url = models.URLField(blank=True, help_text="Public CDN URL of the rendered short")
+    file_size = models.BigIntegerField(null=True, blank=True)
+    duration_seconds = models.FloatField(null=True, blank=True)
+
+    # AI-generated content (requires approval like other AI artifacts)
+    ai_caption_artifact = models.ForeignKey(
+        AIArtifact,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='video_shorts',
+        help_text="AI artifact that generated the caption/hashtags",
+    )
+
+    render_started_at = models.DateTimeField(null=True, blank=True)
+    render_completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Video Short"
+        verbose_name_plural = "Video Shorts"
+        ordering = ['start_ms']
+        indexes = [
+            models.Index(fields=['organization_uuid', 'episode']),
+            models.Index(fields=['organization_uuid', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.get_aspect_ratio_display()}) — {self.get_status_display()}"
+
+    @property
+    def duration_ms(self):
+        return self.end_ms - self.start_ms
+
+    @property
+    def shareable_link(self):
+        """CDN public link ready to share."""
+        return self.public_url or None
+
+    @property
+    def start_formatted(self):
+        seconds = self.start_ms // 1000
+        return f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+
+    @property
+    def end_formatted(self):
+        seconds = self.end_ms // 1000
+        return f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
 
 
 # =============================================================================

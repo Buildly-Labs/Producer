@@ -329,6 +329,7 @@ class ArtifactType:
     SOCIAL_POSTS = 'social_posts'
     TITLES = 'titles'
     CHAPTERS = 'chapters'
+    SHORTS = 'shorts'
 
     CHOICES = [
         (QUESTIONS, 'Questions'),
@@ -337,6 +338,7 @@ class ArtifactType:
         (SOCIAL_POSTS, 'Social Posts'),
         (TITLES, 'Titles'),
         (CHAPTERS, 'Chapters'),
+        (SHORTS, 'Shorts'),
     ]
 
 
@@ -364,3 +366,105 @@ DEFAULT_CHECKLIST_ITEMS = [
     {'title': 'Final show notes approved', 'is_required': True, 'sort_order': 5},
     {'title': 'Export package generated', 'is_required': True, 'sort_order': 6},
 ]
+
+
+# =============================================================================
+# PODCAST PLATFORMS
+# =============================================================================
+
+class PodcastPlatform:
+    APPLE = 'apple'
+    SPOTIFY = 'spotify'
+    AMAZON = 'amazon'
+    GOOGLE = 'google'
+    IHEART = 'iheart'
+    STITCHER = 'stitcher'
+    POCKET_CASTS = 'pocket_casts'
+    OVERCAST = 'overcast'
+    CASTBOX = 'castbox'
+    RSS = 'rss'
+
+    CHOICES = [
+        (APPLE, 'Apple Podcasts'),
+        (SPOTIFY, 'Spotify'),
+        (AMAZON, 'Amazon Music / Audible'),
+        (GOOGLE, 'Google Podcasts'),
+        (IHEART, 'iHeartRadio'),
+        (STITCHER, 'Stitcher'),
+        (POCKET_CASTS, 'Pocket Casts'),
+        (OVERCAST, 'Overcast'),
+        (CASTBOX, 'Castbox'),
+        (RSS, 'RSS Feed'),
+    ]
+
+    # Platforms that accept RSS submissions (vs. proprietary API)
+    RSS_SUBMISSION_PLATFORMS = [APPLE, SPOTIFY, AMAZON, GOOGLE, IHEART, STITCHER, POCKET_CASTS, OVERCAST, CASTBOX]
+
+    # Submission / directory URLs for each platform
+    SUBMISSION_URLS = {
+        APPLE: 'https://podcastsconnect.apple.com/my-podcasts/new-feed',
+        SPOTIFY: 'https://podcasters.spotify.com/pod/submit',
+        AMAZON: 'https://music.amazon.com/podcasts/submit',
+        GOOGLE: 'https://podcastsmanager.google.com/',
+        IHEART: 'https://www.iheart.com/content/submit-your-podcast/',
+        STITCHER: 'https://partners.stitcher.com/join',
+        POCKET_CASTS: 'https://pocketcasts.com/submit/',
+        OVERCAST: 'https://overcast.fm/podcasterinfo',
+        CASTBOX: 'https://helpcenter.castbox.fm/hc/en-us/articles/360003534751',
+    }
+
+
+# =============================================================================
+# DISTRIBUTION STATUS
+# =============================================================================
+
+class DistributionStatus:
+    PENDING = 'pending'
+    SUBMITTED = 'submitted'
+    LIVE = 'live'
+    FAILED = 'failed'
+    REMOVED = 'removed'
+
+    CHOICES = [
+        (PENDING, 'Pending'),
+        (SUBMITTED, 'Submitted'),
+        (LIVE, 'Live'),
+        (FAILED, 'Failed'),
+        (REMOVED, 'Removed'),
+    ]
+
+
+# =============================================================================
+# VIDEO SHORT STATUS
+# =============================================================================
+
+class ShortStatus:
+    QUEUED = 'queued'
+    RENDERING = 'rendering'
+    UPLOADING = 'uploading'
+    READY = 'ready'
+    FAILED = 'failed'
+
+    CHOICES = [
+        (QUEUED, 'Queued'),
+        (RENDERING, 'Rendering'),
+        (UPLOADING, 'Uploading'),
+        (READY, 'Ready'),
+        (FAILED, 'Failed'),
+    ]
+
+
+# =============================================================================
+# SHORT ASPECT RATIOS
+# =============================================================================
+
+class ShortAspectRatio:
+    VERTICAL = '9:16'    # TikTok / Reels / Shorts
+    SQUARE = '1:1'       # Instagram / Twitter
+    HORIZONTAL = '16:9'  # YouTube horizontal clip
+
+    CHOICES = [
+        (VERTICAL, 'Vertical (9:16) — TikTok / Reels / Shorts'),
+        (SQUARE, 'Square (1:1) — Instagram / Twitter'),
+        (HORIZONTAL, 'Horizontal (16:9) — YouTube Clip'),
+    ]
