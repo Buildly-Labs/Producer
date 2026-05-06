@@ -99,8 +99,8 @@
         </div>
 
         <!-- Upload File Form — direct-to-Spaces (no size limit) -->
-           <div x-show="activeTab === 'upload'" x-cloak class="p-4"
-               x-data="directUpload('{{ episode.pk }}', '{% url 'production_ledger:api_media_presign' episode.pk %}', '{% url 'production_ledger:api_media_confirm' episode.pk %}')">
+         <div x-show="activeTab === 'upload'" x-cloak class="p-4"
+             x-data="directUpload('{{ episode.pk }}', '{{ episode.organization_uuid }}', '/upload/presign', '{% url 'production_ledger:api_media_confirm' episode.pk %}')">
             <div class="mb-3">
                 <p class="text-sm text-gray-600">
                     Files upload <strong>directly to cloud storage</strong> — no server size limit.
@@ -299,7 +299,7 @@
 </div>
 
 <script>
-function directUpload(episodeId, presignUrl, confirmUrl) {
+function directUpload(episodeId, orgUuid, presignUrl, confirmUrl) {
     function deriveFallbackUrl(url) {
         if (url.includes('/ledger/api/')) {
             return url.replace('/ledger/api/', '/api/');
@@ -398,6 +398,8 @@ function directUpload(episodeId, presignUrl, confirmUrl) {
                         filename: this.selectedFile.name,
                         content_type: this.selectedFile.type || 'application/octet-stream',
                         asset_type: this.assetType,
+                        episode_id: this.episodeId,
+                        organization_uuid: orgUuid,
                     },
                     csrfToken,
                 );
