@@ -1287,3 +1287,130 @@ class RenderAllShortsAPI(APIView):
 
         return Response({'results': results, 'count': len(results)})
 
+
+# =============================================================================
+# DIRECT-TO-SPACES UPLOAD  (presigned PUT — bypasses nginx/gunicorn)
+# =============================================================================
+
+class MediaPresignUploadAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/media/presign/
+
+    Generate a short-lived presigned PUT URL so the browser can upload a file
+    directly to DigitalOcean Spaces without streaming through the Django server.
+
+    Body (JSON):
+        filename      — original filename (used to build the storage key)
+        content_type  — MIME type of the file
+        asset_type    — value from AssetType choices
+
+    Returns:
+        {url, key, public_url, expires_in}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        import os as _os
+        import uuid as _uuid
+        from .services import storage  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode, Role.EDITOR):
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        filename = request.data.get('filename', 'upload')
+        content_type = request.data.get('content_type', 'application/octet-stream')
+
+        # Sanitise filename — strip path traversal, collapse whitespace
+        safe_name = _os.path.basename(filename).replace(' ', '_')
+        if not safe_name:
+            safe_name = 'upload'
+        unique_prefix = _uuid.uuid4().hex[:8]
+
+        key = storage.media_asset_key(
+            str(episode.organization_uuid),
+            str(episode_id),
+            unique_prefix,
+            safe_name,
+        )
+
+        EXPIRES = 3600
+        try:
+            result = storage.generate_presigned_upload_url(key, content_type, expires=EXPIRES)
+        except Exception as exc:
+            return Response({'detail': f'Could not generate upload URL: {exc}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        result['expires_in'] = EXPIRES
+        return Response(result)
+
+
+class MediaAssetConfirmUploadAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/media/confirm/
+
+    After the browser finishes uploading directly to DO Spaces, call this
+    endpoint to create the MediaAsset record in the database.
+
+    Body (JSON):
+        key           — storage key returned by the presign endpoint
+        public_url    — CDN URL returned by the presign endpoint
+        asset_type    — value from AssetType choices
+        filename      — original filename
+        file_size     — byte size of the uploaded file
+        content_type  — MIME type
+        label         — (optional) display name
+
+    Returns:
+        {id, public_url}  with HTTP 201
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        import os as _os
+        from .constants import AssetType, IngestionStatus, SourceType  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode, Role.EDITOR):
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        key = (request.data.get('key') or '').strip()
+        public_url = (request.data.get('public_url') or '').strip()
+        asset_type = (request.data.get('asset_type') or '').strip()
+        filename = (request.data.get('filename') or _os.path.basename(key))
+        file_size = request.data.get('file_size')
+        content_type = (request.data.get('content_type') or '').strip()
+        label = (request.data.get('label') or '').strip()
+
+        if not key or not public_url or not asset_type:
+            return Response(
+                {'detail': 'key, public_url, and asset_type are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_asset_types = {c[0] for c in AssetType.CHOICES}
+        if asset_type not in valid_asset_types:
+            return Response(
+                {'detail': f'Invalid asset_type. Valid values: {sorted(valid_asset_types)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        asset = MediaAsset(
+            episode=episode,
+            organization_uuid=episode.organization_uuid,
+            asset_type=asset_type,
+            source_type=SourceType.EXTERNAL_LINK,
+            external_url=public_url,
+            label=label or _os.path.splitext(filename)[0],
+            filename=filename,
+            content_type=content_type,
+            file_size=int(file_size) if file_size else None,
+            ingestion_status=IngestionStatus.READY,
+            ingested_by=request.user,
+            created_by=request.user,
+        )
+        asset.save()
+
+        return Response({'id': str(asset.id), 'public_url': public_url},
+                        status=status.HTTP_201_CREATED)
+

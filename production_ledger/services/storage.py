@@ -198,6 +198,55 @@ def podcast_feed_key(organization_uuid: str, show_slug: str) -> str:
     return f"producer/{organization_uuid}/feeds/{show_slug}/feed.xml"
 
 
+def media_asset_key(organization_uuid: str, episode_id: str, unique_prefix: str, filename: str) -> str:
+    """Standard key path for direct-uploaded media assets."""
+    return f"producer/{organization_uuid}/episodes/{episode_id}/media/{unique_prefix}_{filename}"
+
+
+# ---------------------------------------------------------------------------
+# Presigned upload URL (browser → Spaces direct upload)
+# ---------------------------------------------------------------------------
+
+def generate_presigned_upload_url(
+    key: str,
+    content_type: str,
+    expires: int = 3600,
+) -> dict:
+    """
+    Generate a presigned PUT URL so the browser can upload directly to
+    DO Spaces, bypassing the Django server entirely.
+
+    Args:
+        key:          Destination object key in the bucket.
+        content_type: MIME type of the file being uploaded.
+        expires:      Seconds until the presigned URL expires (default 1 h).
+
+    Returns:
+        dict with keys:
+            url         — presigned PUT URL to use from the browser
+            key         — the object key
+            public_url  — CDN URL that will be live after the upload completes
+    """
+    client = _build_client()
+    cfg = _get_spaces_config()
+
+    url = client.generate_presigned_url(
+        "put_object",
+        Params={
+            "Bucket": cfg["bucket"],
+            "Key": key,
+            "ContentType": content_type,
+            "ACL": "public-read",
+        },
+        ExpiresIn=expires,
+    )
+    return {
+        "url": url,
+        "key": key,
+        "public_url": _public_url(key),
+    }
+
+
 def cover_art_key(organization_uuid: str, show_slug: str, filename: str) -> str:
     """Standard key path for show cover art."""
     return f"producer/{organization_uuid}/shows/{show_slug}/cover-art/{filename}"

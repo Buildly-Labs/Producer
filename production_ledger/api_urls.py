@@ -29,6 +29,8 @@ urlpatterns = [
     
     # Media Assets
     path('episodes/<uuid:episode_id>/media/', api.MediaAssetListCreateAPI.as_view(), name='api_media_list'),
+    path('episodes/<uuid:episode_id>/media/presign/', api.MediaPresignUploadAPI.as_view(), name='api_media_presign'),
+    path('episodes/<uuid:episode_id>/media/confirm/', api.MediaAssetConfirmUploadAPI.as_view(), name='api_media_confirm'),
     path('media/<uuid:pk>/', api.MediaAssetDetailAPI.as_view(), name='api_media_detail'),
     
     # Transcripts
