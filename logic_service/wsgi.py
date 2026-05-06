@@ -11,6 +11,9 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "logic_service.settings.production")
+if "DJANGO_SETTINGS_MODULE" not in os.environ:
+	running_in_docker = os.getenv("RUNNING_IN_DOCKER", "").lower() in ("1", "true", "yes")
+	default_settings = "logic_service.settings.docker" if running_in_docker else "logic_service.settings.production"
+	os.environ.setdefault("DJANGO_SETTINGS_MODULE", default_settings)
 
 application = get_wsgi_application()
