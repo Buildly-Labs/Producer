@@ -409,14 +409,18 @@ function directUpload(episodeId, orgUuid, presignUrl, confirmUrl) {
                 return;
             }
 
-            // Step 2 — PUT directly to DO Spaces with progress tracking
+            // Step 2 — upload directly to DO Spaces with progress tracking
             this.statusMsg = 'Uploading to cloud storage…';
             const startTime = Date.now();
 
             await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
-                xhr.open('PUT', presignData.url, true);
-                xhr.setRequestHeader('Content-Type', this.selectedFile.type || 'application/octet-stream');
+                const isPresignedPost = !!presignData.fields;
+                xhr.open(isPresignedPost ? 'POST' : 'PUT', presignData.url, true);
+
+                if (!isPresignedPost) {
+                    xhr.setRequestHeader('Content-Type', this.selectedFile.type || 'application/octet-stream');
+                }
                 xhr.withCredentials = false;
 
                 xhr.upload.addEventListener('progress', (e) => {
@@ -440,7 +444,14 @@ function directUpload(episodeId, orgUuid, presignUrl, confirmUrl) {
                 });
                 xhr.addEventListener('abort', () => reject(new Error('Upload was aborted')));
 
-                xhr.send(this.selectedFile);
+                if (isPresignedPost) {
+                    const formData = new FormData();
+                    Object.entries(presignData.fields).forEach(([k, v]) => formData.append(k, v));
+                    formData.append('file', this.selectedFile);
+                    xhr.send(formData);
+                } else {
+                    xhr.send(this.selectedFile);
+                }
             }).catch((e) => {
                 this.errorMsg = 'Upload failed: ' + e.message;
                 this.uploading = false;
