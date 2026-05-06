@@ -86,15 +86,18 @@ MIDDLEWARE.insert(
 )
 LOGIN_URL = '/'  # redirect to gateway login instead of Django's own
 
-# Only add debug toolbar and other dev-only apps when not in Docker
-if not os.getenv('RUNNING_IN_DOCKER'):
-    MIDDLEWARE = MIDDLEWARE + ['debug_toolbar.middleware.DebugToolbarMiddleware']
-    INSTALLED_APPS = INSTALLED_APPS + ["debug_toolbar"]
-    
-    INTERNAL_IPS = [
-        "localhost",
-        "127.0.0.1",
-    ]
+# Only add debug toolbar in local debug mode when package is installed.
+if DEBUG and not os.getenv('RUNNING_IN_DOCKER'):
+    try:
+        import debug_toolbar  # noqa: F401
+        MIDDLEWARE = MIDDLEWARE + ['debug_toolbar.middleware.DebugToolbarMiddleware']
+        INSTALLED_APPS = INSTALLED_APPS + ["debug_toolbar"]
+        INTERNAL_IPS = [
+            "localhost",
+            "127.0.0.1",
+        ]
+    except ImportError:
+        pass
 
 try:
     from .local import *

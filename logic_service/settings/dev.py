@@ -31,14 +31,17 @@ ALLOWED_HOSTS = ['*']
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-MIDDLEWARE = MIDDLEWARE + ['debug_toolbar.middleware.DebugToolbarMiddleware']
-
-INSTALLED_APPS = INSTALLED_APPS + ["debug_toolbar",]
-
-INTERNAL_IPS = [
-    "localhost",
-    "127.0.0.1",
-]
+if DEBUG:
+    try:
+        import debug_toolbar  # noqa: F401
+        MIDDLEWARE = MIDDLEWARE + ['debug_toolbar.middleware.DebugToolbarMiddleware']
+        INSTALLED_APPS = INSTALLED_APPS + ["debug_toolbar"]
+        INTERNAL_IPS = [
+            "localhost",
+            "127.0.0.1",
+        ]
+    except ImportError:
+        pass
 
 try:
     from .local import *
