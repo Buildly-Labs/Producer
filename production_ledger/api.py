@@ -5,6 +5,7 @@ All endpoints enforce organization scoping and RBAC.
 """
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.db import OperationalError, ProgrammingError
 
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
@@ -1417,21 +1418,32 @@ class MediaAssetConfirmUploadAPI(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        asset = MediaAsset(
-            episode=episode,
-            organization_uuid=episode.organization_uuid,
-            asset_type=asset_type,
-            source_type=SourceType.EXTERNAL_LINK,
-            external_url=public_url,
-            label=label or _os.path.splitext(filename)[0],
-            filename=filename,
-            content_type=content_type,
-            file_size=int(file_size) if file_size else None,
-            ingestion_status=IngestionStatus.READY,
-            ingested_by=request.user,
-            created_by=request.user,
-        )
-        asset.save()
+        try:
+            asset = MediaAsset(
+                episode=episode,
+                organization_uuid=episode.organization_uuid,
+                asset_type=asset_type,
+                source_type=SourceType.EXTERNAL_LINK,
+                external_url=public_url,
+                label=label or _os.path.splitext(filename)[0],
+                filename=filename,
+                content_type=content_type,
+                file_size=int(file_size) if file_size else None,
+                ingestion_status=IngestionStatus.READY,
+                ingested_by=request.user,
+                created_by=request.user,
+            )
+            asset.save()
+        except (OperationalError, ProgrammingError):
+            return Response(
+                {
+                    'detail': (
+                        'Media upload reached storage, but database schema is out of sync. '
+                        'Run Producer migrations and retry confirm.'
+                    )
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response({'id': str(asset.id), 'public_url': public_url},
                         status=status.HTTP_201_CREATED)

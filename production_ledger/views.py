@@ -4,13 +4,14 @@ Views for Production Ledger.
 All views enforce organization scoping and RBAC.
 """
 import json
+import logging
 import zipfile
 from io import BytesIO
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import OperationalError, ProgrammingError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -89,6 +90,9 @@ from .permissions import (
     has_minimum_role,
     has_role,
 )
+
+
+logger = logging.getLogger(__name__)
 from .services.ai import (
     generate_chapters,
     generate_questions,
@@ -756,7 +760,19 @@ class EpisodeMediaView(EpisodeTabMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['media_assets'] = self.get_episode().media_assets.all().order_by('asset_type', '-created_at')
+        try:
+            context['media_assets'] = self.get_episode().media_assets.all().order_by('asset_type', '-created_at')
+        except (OperationalError, ProgrammingError) as exc:
+            logger.exception(
+                'Episode media tab query failed for episode=%s; rendering empty state',
+                getattr(self.get_episode(), 'pk', None),
+            )
+            context['media_assets'] = []
+            messages.error(
+                self.request,
+                'Media assets are temporarily unavailable due to a database schema mismatch. '
+                'The page loaded in safe mode.',
+            )
         context['upload_form'] = MediaAssetUploadForm()
         context['link_form'] = MediaAssetLinkForm()
         return context
@@ -777,13 +793,21 @@ class EpisodeMediaView(EpisodeTabMixin, TemplateView):
             form = MediaAssetLinkForm(request.POST)
         
         if form.is_valid():
-            asset = form.save(commit=False)
-            asset.episode = episode
-            asset.organization_uuid = episode.organization_uuid
-            asset.ingested_by = request.user
-            asset.created_by = request.user
-            asset.save()
-            messages.success(request, 'Media asset added!')
+            try:
+                asset = form.save(commit=False)
+                asset.episode = episode
+                asset.organization_uuid = episode.organization_uuid
+                asset.ingested_by = request.user
+                asset.created_by = request.user
+                asset.save()
+                messages.success(request, 'Media asset added!')
+            except (OperationalError, ProgrammingError):
+                logger.exception('Media asset save failed for episode=%s', episode.pk)
+                messages.error(
+                    request,
+                    'Could not save this media asset because the database schema is out of sync. '
+                    'Please re-run Producer migrations.',
+                )
         else:
             for field, errors in form.errors.items():
                 for error in errors:
