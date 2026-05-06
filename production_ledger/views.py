@@ -30,11 +30,13 @@ from django.views.generic import (
 )
 
 from .constants import (
+    AssetType,
     ApprovalStatus,
     ArtifactType,
     ClipPriority,
     EpisodeStatus,
     IngestionStatus,
+    MediaPlatform,
     QuoteApproval,
     Role,
     SourceType,
@@ -631,16 +633,63 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         episode = self.get_episode()
         context['distributions'] = PodcastDistribution.objects.filter(episode=episode).order_by('platform')
+        context['video_assets'] = episode.media_assets.filter(asset_type=AssetType.VIDEO).order_by('-created_at')
         context['can_publish'] = has_minimum_role(self.request.user, episode.show, Role.PRODUCER)
         context['can_mark_published'] = episode.status == EpisodeStatus.APPROVED and episode.is_checklist_complete()
         return context
 
     def post(self, request, *args, **kwargs):
+        from .services import storage  # noqa: PLC0415
         from .services.distribution import build_and_publish_feed, publish_episode_audio  # noqa: PLC0415
 
         episode = self.get_episode()
         if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
             messages.error(request, 'Producer role required to publish audio.')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        action = request.POST.get('action', 'publish_audio')
+
+        if action == 'publish_video':
+            video_file = request.FILES.get('video')
+            if not video_file:
+                messages.error(request, 'Video file is required.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            try:
+                video_key = storage.episode_video_key(
+                    str(episode.organization_uuid),
+                    str(episode.id),
+                    video_file.name,
+                )
+                video_url = storage.upload_file(
+                    video_file,
+                    video_key,
+                    content_type=video_file.content_type or 'video/mp4',
+                    public=True,
+                    extra_metadata={'episode-id': str(episode.id)},
+                )
+
+                MediaAsset.objects.create(
+                    episode=episode,
+                    organization_uuid=episode.organization_uuid,
+                    asset_type=AssetType.VIDEO,
+                    source_type=SourceType.EXTERNAL_LINK,
+                    platform=MediaPlatform.DIRECT_URL,
+                    external_url=video_url,
+                    label=request.POST.get('label', '') or f"Published Video - {video_file.name}",
+                    filename=video_file.name,
+                    content_type=video_file.content_type or 'video/mp4',
+                    file_size=video_file.size,
+                    ingestion_status=IngestionStatus.READY,
+                    ingested_by=request.user,
+                    created_by=request.user,
+                    updated_by=request.user,
+                )
+            except Exception as exc:
+                messages.error(request, f'Video publish failed: {exc}')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            messages.success(request, 'Video uploaded and published as a media asset.')
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
         audio_file = request.FILES.get('audio')
@@ -868,16 +917,38 @@ class EpisodeTranscriptView(EpisodeTabMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['transcripts'] = self.get_episode().transcripts.all().order_by('-revision')
+        episode = self.get_episode()
+        context['transcripts'] = episode.transcripts.all().order_by('-revision')
+        context['latest_media_asset'] = episode.media_assets.filter(
+            asset_type__in=[AssetType.VIDEO, AssetType.AUDIO]
+        ).order_by('-created_at').first()
         context['upload_form'] = TranscriptUploadForm()
         context['paste_form'] = TranscriptPasteForm()
         return context
     
     def post(self, request, *args, **kwargs):
         episode = self.get_episode()
+        action = request.POST.get('action', '')
         
         if not can_manage_transcripts(request.user, episode):
             messages.error(request, 'You do not have permission to manage transcripts.')
+            return redirect('production_ledger:episode_transcript', pk=episode.pk)
+
+        if action == 'auto_transcribe':
+            from .services import transcription as transcription_svc  # noqa: PLC0415
+
+            media_asset = episode.media_assets.filter(
+                asset_type__in=[AssetType.VIDEO, AssetType.AUDIO]
+            ).order_by('-created_at').first()
+            if not media_asset:
+                messages.error(request, 'No media asset found. Upload audio/video in the Media tab first.')
+                return redirect('production_ledger:episode_transcript', pk=episode.pk)
+
+            try:
+                transcription_svc.transcribe_media_asset(media_asset, user=request.user)
+                messages.success(request, 'Transcript generated from latest uploaded media.')
+            except Exception as exc:
+                messages.error(request, f'Auto-transcription failed: {exc}')
             return redirect('production_ledger:episode_transcript', pk=episode.pk)
         
         # Determine which form was submitted
@@ -924,15 +995,49 @@ class EpisodeClipsView(EpisodeTabMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['clips'] = self.get_episode().clip_moments.all().order_by('start_ms')
+        context['latest_transcript'] = self.get_episode().transcripts.order_by('-revision').first()
         context['clip_form'] = ClipMomentForm()
         context['priorities'] = ClipPriority.CHOICES
         return context
     
     def post(self, request, *args, **kwargs):
         episode = self.get_episode()
+        action = request.POST.get('action', '')
         
         if not can_manage_clips(request.user, episode):
             messages.error(request, 'You do not have permission to manage clips.')
+            return redirect('production_ledger:episode_clips', pk=episode.pk)
+
+        if action == 'auto_identify':
+            from .services import transcription as transcription_svc  # noqa: PLC0415
+            from .services.shorts import identify_and_queue_shorts  # noqa: PLC0415
+
+            transcript = episode.transcripts.order_by('-revision').first()
+            if transcript is None:
+                media_asset = episode.media_assets.filter(
+                    asset_type__in=[AssetType.VIDEO, AssetType.AUDIO]
+                ).order_by('-created_at').first()
+                if not media_asset:
+                    messages.error(request, 'No transcript or media found. Upload media first.')
+                    return redirect('production_ledger:episode_clips', pk=episode.pk)
+                try:
+                    transcript = transcription_svc.transcribe_media_asset(media_asset, user=request.user)
+                    messages.info(request, 'No transcript existed; generated one from latest media first.')
+                except Exception as exc:
+                    messages.error(request, f'Could not auto-generate transcript: {exc}')
+                    return redirect('production_ledger:episode_clips', pk=episode.pk)
+
+            try:
+                shorts = identify_and_queue_shorts(
+                    episode,
+                    transcript=transcript,
+                    aspect_ratio=request.POST.get('aspect_ratio', '9:16'),
+                    max_clips=int(request.POST.get('max_clips', 5) or 5),
+                    user=request.user,
+                )
+                messages.success(request, f'AI identified {len(shorts)} clip moments from the latest transcript/media.')
+            except Exception as exc:
+                messages.error(request, f'AI clip identification failed: {exc}')
             return redirect('production_ledger:episode_clips', pk=episode.pk)
         
         form = ClipMomentForm(request.POST)

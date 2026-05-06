@@ -9,10 +9,33 @@
 
     <!-- Add Clip Form -->
     {% if user_role in 'admin,host,producer,editor' %}
+    <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+        <form method="post" class="flex flex-wrap items-center justify-between gap-3">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="auto_identify">
+            <div class="text-sm text-blue-900">
+                <strong>AI Auto-Identify:</strong> Generate clip moments from transcript
+                {% if not latest_transcript %}(will auto-transcribe latest media first){% endif %}.
+            </div>
+            <div class="flex items-center gap-2">
+                <input type="number" name="max_clips" min="1" max="10" value="5" class="w-20 rounded-md border-gray-300 text-sm">
+                <select name="aspect_ratio" class="rounded-md border-gray-300 text-sm">
+                    <option value="9:16">9:16</option>
+                    <option value="1:1">1:1</option>
+                    <option value="16:9">16:9</option>
+                </select>
+                <button type="submit" class="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                    Generate with AI
+                </button>
+            </div>
+        </form>
+    </div>
+
     <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
         <h4 class="font-medium text-gray-900 mb-3">Mark New Clip</h4>
         <form method="post" class="space-y-4">
             {% csrf_token %}
+            <input type="hidden" name="action" value="manual_add">
             <div class="grid grid-cols-3 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700">Start Time (HH:MM:SS)</label>

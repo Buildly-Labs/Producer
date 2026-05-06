@@ -32,6 +32,7 @@
             {% if can_publish %}
             <form method="post" enctype="multipart/form-data" class="space-y-4">
                 {% csrf_token %}
+                <input type="hidden" name="action" value="publish_audio">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Audio File</label>
                     <input type="file" name="audio" accept="audio/*" required class="block w-full text-sm text-gray-500">
@@ -52,6 +53,46 @@
             <p class="text-sm text-gray-600">Producer role or higher is required to publish.</p>
             {% endif %}
         </div>
+    </div>
+
+    <div class="bg-white border border-gray-200 rounded-lg p-5">
+        <h3 class="text-lg font-medium text-gray-900 mb-3">Publish Episode Video</h3>
+        <p class="text-sm text-gray-600 mb-4">Upload master video to storage for YouTube/Spotify Video/manual platform submission workflows.</p>
+        {% if can_publish %}
+        <form method="post" enctype="multipart/form-data" class="space-y-4">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="publish_video">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Video File</label>
+                <input type="file" name="video" accept="video/*" required class="block w-full text-sm text-gray-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Label (optional)</label>
+                <input type="text" name="label" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" placeholder="Published Video - Episode 12">
+            </div>
+            <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gray-800 hover:bg-gray-900">
+                Publish Video
+            </button>
+        </form>
+        {% else %}
+        <p class="text-sm text-gray-600">Producer role or higher is required to publish video.</p>
+        {% endif %}
+
+        {% if video_assets %}
+        <div class="mt-4 border-t border-gray-200 pt-4">
+            <h4 class="text-sm font-medium text-gray-900 mb-2">Published Video Assets</h4>
+            <ul class="space-y-2 text-sm">
+                {% for asset in video_assets %}
+                <li class="flex items-center justify-between">
+                    <span class="text-gray-700">{{ asset.label|default:asset.filename }}</span>
+                    {% if asset.external_url %}
+                    <a href="{{ asset.external_url }}" target="_blank" rel="noopener" class="text-blue-600 hover:text-blue-800">Open</a>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
     </div>
 
     <div>
@@ -87,7 +128,7 @@
         </div>
         {% else %}
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-600">
-            No distribution records yet. Publish audio to generate records for each platform.
+            No podcast distribution records yet. Publish audio to generate podcast platform records.
         </div>
         {% endif %}
     </div>

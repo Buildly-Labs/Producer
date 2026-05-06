@@ -646,13 +646,13 @@ class MediaAsset(BaseModel):
     def detect_platform_from_url(cls, url):
         """Auto-detect platform from URL patterns."""
         if not url:
-            return MediaPlatform.OTHER
+            return MediaPlatform.DIRECT_URL
         url_lower = url.lower()
         for platform, patterns in MediaPlatform.URL_PATTERNS.items():
             for pattern in patterns:
                 if pattern in url_lower:
                     return platform
-        return MediaPlatform.OTHER
+        return MediaPlatform.DIRECT_URL
 
     def compute_checksum(self):
         """Compute SHA256 checksum of the file."""

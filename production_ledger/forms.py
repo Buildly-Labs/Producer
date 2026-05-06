@@ -355,6 +355,13 @@ class MediaAssetLinkForm(TailwindFormMixin, forms.ModelForm):
         self.fields['label'].help_text = "Display name for this link"
         self.fields['platform'].required = False
         self.fields['platform'].help_text = "Auto-detected from URL if left blank"
+
+    def clean_external_url(self):
+        """Normalize URLs so common pasted values (e.g. youtube.com/...) validate."""
+        url = (self.cleaned_data.get('external_url') or '').strip()
+        if url and '://' not in url:
+            url = f'https://{url}'
+        return url
     
     def save(self, commit=True):
         instance = super().save(commit=False)

@@ -59,6 +59,22 @@
     </div>
 
     {% if user_role in 'admin,host,producer,editor' %}
+    {% if latest_media_asset %}
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <form method="post" class="flex items-center justify-between gap-3">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="auto_transcribe">
+            <div class="text-sm text-blue-900">
+                <strong>AI Auto-Transcribe:</strong> Use latest uploaded media
+                ({{ latest_media_asset.label|default:latest_media_asset.filename|default:"media asset" }}).
+            </div>
+            <button type="submit" class="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                Generate Transcript from Media
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <!-- Upload SRT/VTT -->
         <div class="bg-white border border-gray-200 rounded-lg p-4">
