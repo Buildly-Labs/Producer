@@ -2,6 +2,12 @@
 
 set -e
 
+# Keep management commands and Gunicorn on the same settings module.
+# If not explicitly provided by the environment, default to production.
+export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-logic_service.settings.production}"
+
+echo $(date -u) "- Using settings: ${DJANGO_SETTINGS_MODULE}"
+
 echo $(date -u) "- Migrating"
 python manage.py makemigrations
 python manage.py migrate
