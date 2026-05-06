@@ -99,7 +99,8 @@
         </div>
 
         <!-- Upload File Form — direct-to-Spaces (no size limit) -->
-        <div x-show="activeTab === 'upload'" x-cloak class="p-4" x-data="directUpload('{{ episode.pk }}')">
+           <div x-show="activeTab === 'upload'" x-cloak class="p-4"
+               x-data="directUpload('{{ episode.pk }}', '{% url 'production_ledger:api_media_presign' episode.pk %}', '{% url 'production_ledger:api_media_confirm' episode.pk %}')">
             <div class="mb-3">
                 <p class="text-sm text-gray-600">
                     Files upload <strong>directly to cloud storage</strong> — no server size limit.
@@ -298,7 +299,7 @@
 </div>
 
 <script>
-function directUpload(episodeId) {
+function directUpload(episodeId, presignUrl, confirmUrl) {
     return {
         episodeId: episodeId,
         selectedFile: null,
@@ -340,12 +341,10 @@ function directUpload(episodeId) {
             this.statusMsg = 'Requesting upload URL…';
 
             const csrfToken = this.getCsrfToken();
-            const apiBase = `/producer/api/episodes/${this.episodeId}`;
-
             // Step 1 — get presigned PUT URL from Django
             let presignData;
             try {
-                const resp = await fetch(`${apiBase}/media/presign/`, {
+                const resp = await fetch(presignUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -408,7 +407,7 @@ function directUpload(episodeId) {
             this.statusMsg = 'Saving record…';
             this.progress = 100;
             try {
-                const resp = await fetch(`${apiBase}/media/confirm/`, {
+                const resp = await fetch(confirmUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -440,5 +439,6 @@ function directUpload(episodeId) {
         },
     };
 }
+
 </script>
 {% endblock %}
