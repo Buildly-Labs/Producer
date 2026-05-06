@@ -62,6 +62,7 @@ urlpatterns = [
     path('episodes/<uuid:pk>/media/', views.EpisodeMediaView.as_view(), name='episode_media'),
     path('episodes/<uuid:pk>/transcript/', views.EpisodeTranscriptView.as_view(), name='episode_transcript'),
     path('episodes/<uuid:pk>/clips/', views.EpisodeClipsView.as_view(), name='episode_clips'),
+    path('episodes/<uuid:pk>/publish/', views.EpisodePublishView.as_view(), name='episode_publish'),
     path('episodes/<uuid:pk>/ai-drafts/', views.EpisodeAIDraftsView.as_view(), name='episode_ai_drafts'),
     path('episodes/<uuid:pk>/show-notes/', views.EpisodeShowNotesView.as_view(), name='episode_show_notes'),
     path('episodes/<uuid:pk>/exports/', views.EpisodeExportsView.as_view(), name='episode_exports'),

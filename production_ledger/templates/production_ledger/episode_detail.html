@@ -73,6 +73,10 @@
                class="{% if active_tab == 'clips' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
                 Clips
             </a>
+            <a href="{% url 'production_ledger:episode_publish' episode.pk %}"
+               class="{% if active_tab == 'publish' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                Publish
+            </a>
             <a href="{% url 'production_ledger:episode_ai_drafts' episode.pk %}" 
                class="{% if active_tab == 'ai_drafts' %}border-blue-500 text-blue-600{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
                 AI Drafts

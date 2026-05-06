@@ -546,7 +546,22 @@ class EpisodeStatusView(LoginRequiredMixin, OrganizationMixin, RoleMixin, FormVi
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['episode'] = self.get_episode()
+        episode = self.get_episode()
+        context['episode'] = episode
+
+        allowed = EpisodeStatus.TRANSITIONS.get(episode.status, [])
+        status_labels = dict(EpisodeStatus.CHOICES)
+        context['available_transitions'] = [
+            (status_code, status_labels.get(status_code, status_code.title()))
+            for status_code in allowed
+        ]
+
+        blocked = []
+        if episode.status == EpisodeStatus.EDITED and not episode.is_checklist_complete():
+            blocked.append('Checklist must be completed before moving to Approved.')
+        if episode.status == EpisodeStatus.APPROVED and not episode.is_checklist_complete():
+            blocked.append('Checklist must be completed before moving to Published.')
+        context['blocked_transitions'] = blocked
         return context
     
     def form_valid(self, form):
@@ -595,6 +610,70 @@ class EpisodeOverviewView(EpisodeTabMixin, TemplateView):
     
     template_name = 'production_ledger/tabs/overview.html'
     active_tab = 'overview'
+
+
+class EpisodePublishView(EpisodeTabMixin, TemplateView):
+    """Episode publish and distribution tab."""
+
+    template_name = 'production_ledger/tabs/publish.html'
+    active_tab = 'publish'
+
+    def get_context_data(self, **kwargs):
+        from .models import PodcastDistribution  # noqa: PLC0415
+
+        context = super().get_context_data(**kwargs)
+        episode = self.get_episode()
+        context['distributions'] = PodcastDistribution.objects.filter(episode=episode).order_by('platform')
+        context['can_publish'] = has_minimum_role(self.request.user, episode.show, Role.PRODUCER)
+        context['can_mark_published'] = episode.status == EpisodeStatus.APPROVED and episode.is_checklist_complete()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        from .services.distribution import build_and_publish_feed, publish_episode_audio  # noqa: PLC0415
+
+        episode = self.get_episode()
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            messages.error(request, 'Producer role required to publish audio.')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        audio_file = request.FILES.get('audio')
+        if not audio_file:
+            messages.error(request, 'Audio file is required.')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        duration_seconds = int(request.POST.get('duration_seconds', 0) or 0)
+        rebuild_feed = request.POST.get('rebuild_feed', 'true').lower() != 'false'
+
+        try:
+            result = publish_episode_audio(
+                episode,
+                audio_file,
+                audio_file.name,
+                duration_seconds=duration_seconds,
+                user=request.user,
+            )
+        except Exception as exc:
+            messages.error(request, f'Audio publish failed: {exc}')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        if rebuild_feed:
+            try:
+                build_and_publish_feed(episode.show, user=request.user)
+            except Exception as exc:
+                messages.warning(request, f'Audio uploaded, but feed rebuild failed: {exc}')
+
+        if episode.status == EpisodeStatus.APPROVED and episode.is_checklist_complete():
+            try:
+                episode.transition_to(EpisodeStatus.PUBLISHED, user=request.user)
+            except Exception:
+                # Keep publishing successful even if status transition is blocked.
+                pass
+
+        messages.success(
+            request,
+            f"Audio published to {len(result['distributions'])} platform records.",
+        )
+        return redirect('production_ledger:episode_publish', pk=episode.pk)
 
 
 class EpisodeSegmentsView(EpisodeTabMixin, TemplateView):

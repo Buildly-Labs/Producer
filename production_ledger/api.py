@@ -7,11 +7,12 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .constants import ApprovalStatus, ArtifactType, Role
+from .constants import ApprovalStatus, ArtifactType, EpisodeStatus, Role
 from .models import (
     AIArtifact,
     ChecklistItem,
@@ -120,7 +121,7 @@ class ShowDetailAPI(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAPIVi
     
     def perform_update(self, serializer):
         if not has_role(self.request.user, self.get_object(), [Role.ADMIN]):
-            return Response({'error': 'Admin role required'}, status=status.HTTP_403_FORBIDDEN)
+            raise PermissionDenied('Admin role required')
         serializer.save(updated_by=self.request.user)
 
 
@@ -161,7 +162,7 @@ class EpisodeDetailAPI(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAP
     def perform_update(self, serializer):
         episode = self.get_object()
         if not has_role(self.request.user, episode, [Role.ADMIN, Role.HOST, Role.PRODUCER]):
-            return Response({'error': 'Insufficient permissions'}, status=status.HTTP_403_FORBIDDEN)
+            raise PermissionDenied('Insufficient permissions')
         serializer.save(updated_by=self.request.user)
 
 
@@ -169,6 +170,26 @@ class EpisodeStatusAPI(APIView):
     """Change episode status."""
     
     permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        """Return current status and available transitions for an episode."""
+        episode = get_object_or_404(Episode, pk=pk)
+
+        if not has_minimum_role(request.user, episode.show, Role.GUEST):
+            return Response({'error': 'Guest role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        available = EpisodeStatus.TRANSITIONS.get(episode.status, [])
+        choices = dict(EpisodeStatus.CHOICES)
+        return Response({
+            'episode_id': str(episode.id),
+            'current_status': episode.status,
+            'current_status_label': episode.get_status_display(),
+            'available_transitions': [
+                {'status': s, 'label': choices.get(s, s.title())}
+                for s in available
+            ],
+            'checklist_complete': episode.is_checklist_complete(),
+        })
     
     def post(self, request, pk):
         episode = get_object_or_404(Episode, pk=pk)
@@ -726,7 +747,7 @@ class UploadVideoAPI(APIView):
                 extra_metadata={'episode-id': str(episode.id)},
             )
         except Exception as exc:
-            return Response({'error': f'Upload failed: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+            return Response({'error': f'Upload failed: {exc}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Create MediaAsset record
         media_asset = MediaAsset.objects.create(
@@ -931,7 +952,7 @@ class UploadCoverArtAPI(APIView):
                 extra_metadata={'show-slug': show.slug},
             )
         except Exception as exc:
-            return Response({'error': f'Upload failed: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+            return Response({'error': f'Upload failed: {exc}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         config = _get_feed_config(show)
         config.cover_art_url = public_url
