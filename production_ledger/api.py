@@ -1310,9 +1310,13 @@ class MediaPresignUploadAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, episode_id):
+        import logging
         import os as _os
+        import signal
         import uuid as _uuid
         from .services import storage  # noqa: PLC0415
+
+        logger = logging.getLogger(__name__)
 
         episode = get_object_or_404(Episode, pk=episode_id)
         if not has_minimum_role(request.user, episode, Role.EDITOR):
@@ -1335,9 +1339,27 @@ class MediaPresignUploadAPI(APIView):
         )
 
         EXPIRES = 3600
+
+        class _PresignTimeout(Exception):
+            pass
+
+        def _timeout_handler(signum, frame):  # noqa: ARG001
+            raise _PresignTimeout('Presign generation timed out')
+
         try:
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(8)
             result = storage.generate_presigned_upload_url(key, content_type, expires=EXPIRES)
+            signal.alarm(0)
+        except _PresignTimeout:
+            logger.exception('Presign timeout for episode=%s user=%s key=%s', episode_id, request.user.id, key)
+            return Response(
+                {'detail': 'Upload URL generation timed out. Please retry in a few seconds.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as exc:
+            signal.alarm(0)
+            logger.exception('Presign generation failed for episode=%s user=%s key=%s', episode_id, request.user.id, key)
             return Response({'detail': f'Could not generate upload URL: {exc}'},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

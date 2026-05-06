@@ -300,6 +300,54 @@
 
 <script>
 function directUpload(episodeId, presignUrl, confirmUrl) {
+    function deriveFallbackUrl(url) {
+        if (url.includes('/ledger/api/')) {
+            return url.replace('/ledger/api/', '/api/');
+        }
+        return null;
+    }
+
+    async function postJsonWithFallback(url, payload, csrfToken) {
+        const urls = [url];
+        const fallback = deriveFallbackUrl(url);
+        if (fallback && fallback !== url) {
+            urls.push(fallback);
+        }
+
+        let lastError = null;
+        for (const candidate of urls) {
+            try {
+                const resp = await fetch(candidate, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                if (resp.ok) {
+                    return await resp.json();
+                }
+
+                // Retry alternate route only for upstream timeout/gateway errors
+                if ((resp.status === 504 || resp.status === 502) && candidate !== urls[urls.length - 1]) {
+                    continue;
+                }
+
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.detail || `Server error ${resp.status}`);
+            } catch (e) {
+                lastError = e;
+                if (candidate === urls[urls.length - 1]) {
+                    throw lastError;
+                }
+            }
+        }
+
+        throw lastError || new Error('Request failed');
+    }
+
     return {
         episodeId: episodeId,
         selectedFile: null,
@@ -344,23 +392,15 @@ function directUpload(episodeId, presignUrl, confirmUrl) {
             // Step 1 — get presigned PUT URL from Django
             let presignData;
             try {
-                const resp = await fetch(presignUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken,
-                    },
-                    body: JSON.stringify({
+                presignData = await postJsonWithFallback(
+                    presignUrl,
+                    {
                         filename: this.selectedFile.name,
                         content_type: this.selectedFile.type || 'application/octet-stream',
                         asset_type: this.assetType,
-                    }),
-                });
-                if (!resp.ok) {
-                    const err = await resp.json().catch(() => ({}));
-                    throw new Error(err.detail || `Server error ${resp.status}`);
-                }
-                presignData = await resp.json();
+                    },
+                    csrfToken,
+                );
             } catch (e) {
                 this.errorMsg = 'Could not get upload URL: ' + e.message;
                 this.uploading = false;
@@ -407,13 +447,9 @@ function directUpload(episodeId, presignUrl, confirmUrl) {
             this.statusMsg = 'Saving record…';
             this.progress = 100;
             try {
-                const resp = await fetch(confirmUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken,
-                    },
-                    body: JSON.stringify({
+                await postJsonWithFallback(
+                    confirmUrl,
+                    {
                         key: presignData.key,
                         public_url: presignData.public_url,
                         asset_type: this.assetType,
@@ -421,12 +457,9 @@ function directUpload(episodeId, presignUrl, confirmUrl) {
                         file_size: this.selectedFile.size,
                         content_type: this.selectedFile.type || 'application/octet-stream',
                         label: this.label,
-                    }),
-                });
-                if (!resp.ok) {
-                    const err = await resp.json().catch(() => ({}));
-                    throw new Error(err.detail || `Server error ${resp.status}`);
-                }
+                    },
+                    csrfToken,
+                );
             } catch (e) {
                 this.errorMsg = 'File uploaded but record save failed: ' + e.message;
                 this.uploading = false;
