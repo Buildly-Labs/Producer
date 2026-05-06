@@ -336,7 +336,7 @@ function directUpload(episodeId, orgUuid, presignUrl, confirmUrl) {
                 }
 
                 const err = await resp.json().catch(() => ({}));
-                throw new Error(err.detail || `Server error ${resp.status}`);
+                throw new Error(err.detail || `Server error ${resp.status} at ${candidate}`);
             } catch (e) {
                 lastError = e;
                 if (candidate === urls[urls.length - 1]) {
