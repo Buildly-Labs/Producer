@@ -14,17 +14,17 @@ Workflow:
   5. Shareable CDN links + per-platform captions are returned per short.
 
 Environment variables:
-  AI_PROVIDER              — 'openai' | 'digitalocean' (default: digitalocean when
+  AI_PROVIDER              - 'openai' | 'digitalocean' (default: digitalocean when
                              DIGITALOCEAN_LLM_API_KEY is set, else mock)
-  DIGITALOCEAN_LLM_API_KEY — DigitalOcean GenAI API key (preferred)
-  DIGITALOCEAN_LLM_ENDPOINT — DigitalOcean GenAI base URL
-  AI_API_KEY               — OpenAI key (used when AI_PROVIDER=openai)
-  AI_MODEL                 — Chat model for clip identification (default: gpt-4o)
-  SHORTS_MAX_CLIPS         — Max clips to identify per episode (default: 5)
-  SHORTS_MIN_DURATION      — Minimum clip duration in seconds (default: 20)
-  SHORTS_MAX_DURATION      — Maximum clip duration in seconds (default: 90)
-  SHORTS_CTA_URL           — Website CTA shown in video overlay (default: firstcityfoundry.com)
-  SHORTS_YOUTUBE_HANDLE    — YouTube channel handle for CTAs (default: @FirstCityFoundry)
+  DIGITALOCEAN_LLM_API_KEY - DigitalOcean GenAI API key (preferred)
+  DIGITALOCEAN_LLM_ENDPOINT - DigitalOcean GenAI base URL
+  AI_API_KEY               - OpenAI key (used when AI_PROVIDER=openai)
+  AI_MODEL                 - Chat model for clip identification (default: gpt-4o)
+  SHORTS_MAX_CLIPS         - Max clips to identify per episode (default: 5)
+  SHORTS_MIN_DURATION      - Minimum clip duration in seconds (default: 20)
+  SHORTS_MAX_DURATION      - Maximum clip duration in seconds (default: 90)
+  SHORTS_CTA_URL           - Website CTA shown in video overlay (default: firstcityfoundry.com)
+  SHORTS_YOUTUBE_HANDLE    - YouTube channel handle for CTAs (default: @FirstCityFoundry)
 
 ffmpeg must be available on PATH for rendering.
 """
@@ -61,17 +61,17 @@ Given the transcript segments below, identify the {max_clips} most compelling
 moments that would make high-performing short-form clips.
 
 Each clip must:
-- Be between {min_dur}–{max_dur} seconds long.
+- Be between {min_dur}-{max_dur} seconds long.
 - Start and end at natural speech boundaries.
 - Open with a pattern interrupt or strong hook in the first 3 seconds.
 - Be self-contained and emotionally resonant without the full episode context.
 - Drive curiosity so viewers seek out the full episode.
 
 For every clip, write platform-specific captions:
-- TikTok: conversational, energetic, 150–220 chars, uses relevant trending hashtags, ends with a curiosity hook or question.
-- YouTube Shorts: 200–300 chars, includes the show/brand context, CTA to watch full episode at {youtube_handle}, uses relevant hashtags.
-- Instagram Reels: polished, 200–250 chars, storytelling tone, IG-relevant hashtags, emoji-accented, CTA to link in bio.
-- LinkedIn: professional insight framing, 250–350 chars, why this matters for business/creators, minimal hashtags (3 max).
+- TikTok: conversational, energetic, 150-220 chars, uses relevant trending hashtags, ends with a curiosity hook or question.
+- YouTube Shorts: 200-300 chars, includes the show/brand context, CTA to watch full episode at {youtube_handle}, uses relevant hashtags.
+- Instagram Reels: polished, 200-250 chars, storytelling tone, IG-relevant hashtags, emoji-accented, CTA to link in bio.
+- LinkedIn: professional insight framing, 250-350 chars, why this matters for business/creators, minimal hashtags (3 max).
 
 All captions should eventually funnel viewers to {cta_url} and the full YouTube content.
 
@@ -81,7 +81,7 @@ Return ONLY a JSON array (no extra text) with exactly this schema:
     "start_seconds": 42.5,
     "end_seconds": 87.0,
     "title": "Short punchy title (max 60 chars)",
-    "hook": "Pattern-interrupt opening line (max 100 chars) — first words spoken or supered on screen",
+    "hook": "Pattern-interrupt opening line (max 100 chars) - first words spoken or supered on screen",
     "cta_overlay": "Bottom-of-screen CTA text (max 50 chars), e.g. 'Watch full episode → {cta_url}'",
     "caption": "Primary caption (TikTok default, max 220 chars)",
     "platform_captions": {{
@@ -91,31 +91,6 @@ Return ONLY a JSON array (no extra text) with exactly this schema:
       "linkedin": "LinkedIn caption (max 350 chars, professional insight)"
     }},
     "hashtags": ["#hashtag1", "#hashtag2"],
-    "priority": "gold|silver|bronze"
-  }},
-  ...
-]
-
-TRANSCRIPT SEGMENTS:
-{segments}
-"""
-engaging short-form clips (TikTok / Instagram Reels / YouTube Shorts).
-
-Each clip must:
-- Be between {min_dur}–{max_dur} seconds long.
-- Start and end at natural speech boundaries.
-- Have a strong hook in the first 3 seconds.
-- Be self-contained and understandable without watching the full episode.
-
-Return a JSON array (no extra text) with exactly this schema:
-[
-  {{
-    "start_seconds": 42.5,
-    "end_seconds": 87.0,
-    "title": "Short punchy title (max 60 chars)",
-    "hook": "One-sentence hook / teaser (max 120 chars)",
-    "caption": "Platform caption with context (max 280 chars)",
-    "hashtags": ["#AI", "#podcast"],
     "priority": "gold|silver|bronze"
   }},
   ...
@@ -136,11 +111,11 @@ class _MockClipIdentifier:
                 "title": "The moment everything changed",
                 "hook": "Nobody expected this answer.",
                 "cta_overlay": f"Watch full episode → {SHORTS_CTA_URL}",
-                "caption": "Nobody expected this answer about AI — and it changes everything. 🔥 Watch the full breakdown.",
+                "caption": "Nobody expected this answer about AI - and it changes everything. 🔥 Watch the full breakdown.",
                 "platform_captions": {
                     "tiktok": "Nobody expected THIS answer about AI 😳 Drop a 🔥 if this hit different. Full episode link in bio! #AIpodcast #podcast #tech #mindblown",
-                    "youtube_shorts": f"Nobody expected this answer about AI. Watch the full deep-dive at {SHORTS_YOUTUBE_HANDLE} — link in description! #Shorts #AIPodcast #TechTalk",
-                    "instagram": f"That moment when the answer you didn't expect changes everything… 🤯✨ Full episode on YouTube — link in bio. Follow for more insights from {SHORTS_CTA_URL} #Podcast #AIInsights #TechCreators",
+                    "youtube_shorts": f"Nobody expected this answer about AI. Watch the full deep-dive at {SHORTS_YOUTUBE_HANDLE} - link in description! #Shorts #AIPodcast #TechTalk",
+                    "instagram": f"That moment when the answer you didn't expect changes everything… 🤯✨ Full episode on YouTube - link in bio. Follow for more insights from {SHORTS_CTA_URL} #Podcast #AIInsights #TechCreators",
                     "linkedin": f"A surprising insight from our latest podcast episode that every business leader should hear. Watch the full episode at {SHORTS_CTA_URL} and subscribe to {SHORTS_YOUTUBE_HANDLE} for weekly content. #Leadership #AI #Podcast",
                 },
                 "hashtags": ["#AI", "#podcast", "#tech"],
@@ -152,11 +127,11 @@ class _MockClipIdentifier:
                 "title": "What experts actually think",
                 "hook": "The real story behind AI in 2026.",
                 "cta_overlay": f"Full episode → {SHORTS_CTA_URL}",
-                "caption": "What experts actually think about AI — and why it matters for you. Full breakdown in the episode.",
+                "caption": "What experts actually think about AI - and why it matters for you. Full breakdown in the episode.",
                 "platform_captions": {
                     "tiktok": "What experts ACTUALLY think about AI in 2026 👀 This is the take nobody's saying out loud. Link in bio for full episode! #AI #FutureTech #podcast",
                     "youtube_shorts": f"The expert opinion on AI that most people miss. Subscribe to {SHORTS_YOUTUBE_HANDLE} for the full episode and more. #Shorts #AI #PodcastClip",
-                    "instagram": f"Real talk from real experts — this is what AI in 2026 actually looks like 🎙️ Catch the full conversation on YouTube. Follow + link in bio 👉 {SHORTS_CTA_URL} #AITrends #FutureOfWork",
+                    "instagram": f"Real talk from real experts - this is what AI in 2026 actually looks like 🎙️ Catch the full conversation on YouTube. Follow + link in bio 👉 {SHORTS_CTA_URL} #AITrends #FutureOfWork",
                     "linkedin": f"Cutting through the noise on AI: this expert perspective reframes the conversation entirely. Full episode at {SHORTS_CTA_URL} #AI #Innovation #Leadership",
                 },
                 "hashtags": ["#AI", "#future", "#tech"],
@@ -383,7 +358,7 @@ def identify_and_queue_shorts(
     """
     Use AI to identify compelling clip moments and queue VideoShort objects.
 
-    Does NOT render yet — call ``render_short`` for each queued short.
+    Does NOT render yet - call ``render_short`` for each queued short.
 
     Args:
         episode:      Episode model instance.
