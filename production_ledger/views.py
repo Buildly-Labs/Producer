@@ -629,11 +629,45 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         from .models import PodcastDistribution  # noqa: PLC0415
+        from .constants import PodcastPlatform, DistributionStatus  # noqa: PLC0415
 
         context = super().get_context_data(**kwargs)
         episode = self.get_episode()
-        context['distributions'] = PodcastDistribution.objects.filter(episode=episode).order_by('platform')
-        context['video_assets'] = episode.media_assets.filter(asset_type=AssetType.VIDEO).order_by('-created_at')
+
+        distributions = {
+            d.platform: d
+            for d in PodcastDistribution.objects.filter(episode=episode)
+        }
+        context['distributions'] = distributions
+
+        # Build per-platform rows with setup instructions
+        platform_rows = []
+        for code, label in PodcastPlatform.CHOICES:
+            dist = distributions.get(code)
+            platform_rows.append({
+                'code': code,
+                'label': label,
+                'dist': dist,
+                'status': dist.status if dist else None,
+                'platform_url': dist.platform_url if dist else '',
+                'audio_url': dist.audio_public_url if dist else '',
+                'submission_url': PodcastPlatform.SUBMISSION_URLS.get(code, ''),
+            })
+        context['platform_rows'] = platform_rows
+        context['DistributionStatus'] = DistributionStatus
+
+        context['audio_assets'] = episode.media_assets.filter(
+            asset_type=AssetType.AUDIO,
+        ).order_by('-created_at')
+        context['video_assets'] = episode.media_assets.filter(
+            asset_type=AssetType.VIDEO,
+        ).order_by('-created_at')
+
+        try:
+            context['podcast_feed_config'] = episode.show.podcast_feed_config
+        except Exception:
+            context['podcast_feed_config'] = None
+
         context['can_publish'] = has_minimum_role(self.request.user, episode.show, Role.PRODUCER)
         context['can_mark_published'] = episode.status == EpisodeStatus.APPROVED and episode.is_checklist_complete()
         return context
@@ -648,6 +682,76 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
         action = request.POST.get('action', 'publish_audio')
+
+        if action == 'publish_audio_from_asset':
+            # Publish an already-uploaded audio MediaAsset to all podcast platforms
+            asset_id = request.POST.get('audio_asset_id')
+            if not asset_id:
+                messages.error(request, 'Select an audio asset to publish.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+            try:
+                media_asset = episode.media_assets.get(pk=asset_id, asset_type=AssetType.AUDIO)
+            except Exception:
+                messages.error(request, 'Audio asset not found on this episode.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            audio_url = media_asset.external_url or (media_asset.file.url if media_asset.file else '')
+            if not audio_url:
+                messages.error(request, 'This asset has no accessible URL.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            from .constants import DistributionStatus, PodcastPlatform  # noqa: PLC0415
+            from .models import PodcastDistribution  # noqa: PLC0415
+            from django.utils import timezone as tz  # noqa: PLC0415
+
+            selected_platforms = request.POST.getlist('platforms')
+            if not selected_platforms:
+                selected_platforms = [p for p, _ in PodcastPlatform.CHOICES]
+
+            count = 0
+            for platform in selected_platforms:
+                PodcastDistribution.objects.update_or_create(
+                    episode=episode,
+                    platform=platform,
+                    defaults={
+                        'organization_uuid': episode.organization_uuid,
+                        'audio_public_url': audio_url,
+                        'audio_spaces_key': getattr(media_asset, 'spaces_key', ''),
+                        'audio_file_size': media_asset.file_size or 0,
+                        'audio_duration_seconds': media_asset.duration_seconds or 0,
+                        'audio_content_type': media_asset.content_type or 'audio/mpeg',
+                        'status': DistributionStatus.SUBMITTED,
+                        'submitted_at': tz.now(),
+                        'updated_by': request.user,
+                    },
+                )
+                count += 1
+
+            if request.POST.get('rebuild_feed'):
+                try:
+                    from .services.distribution import build_and_publish_feed  # noqa: PLC0415
+                    build_and_publish_feed(episode.show, user=request.user)
+                except Exception as exc:
+                    messages.warning(request, f'Distributions updated, but feed rebuild failed: {exc}')
+
+            messages.success(request, f'Audio asset published to {count} platform record(s).')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        if action == 'publish_video_from_asset':
+            # Just mark an existing video asset as the published video (no re-upload)
+            asset_id = request.POST.get('video_asset_id')
+            if not asset_id:
+                messages.error(request, 'Select a video asset.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+            try:
+                media_asset = episode.media_assets.get(pk=asset_id, asset_type=AssetType.VIDEO)
+            except Exception:
+                messages.error(request, 'Video asset not found on this episode.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+            media_asset.label = request.POST.get('label') or media_asset.label or 'Published Video'
+            media_asset.save(update_fields=['label'])
+            messages.success(request, f'Video asset "{media_asset.label}" marked as published.')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
 
         if action == 'publish_video':
             video_file = request.FILES.get('video')
