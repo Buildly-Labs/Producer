@@ -35,6 +35,7 @@ import subprocess
 import tempfile
 from typing import Optional
 
+from django.db import models
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -375,8 +376,39 @@ def identify_and_queue_shorts(
 
     if transcript is None:
         transcript = episode.transcripts.order_by("-revision").first()
-        if transcript is None:
-            raise RuntimeError(f"Episode '{episode.title}' has no transcripts. Transcribe first.")
+
+    if transcript is None:
+        # No transcript yet — auto-transcribe the best available media asset.
+        from ..constants import AssetType, IngestionStatus  # noqa: PLC0415
+        from .transcription import transcribe_media_asset  # noqa: PLC0415
+
+        media_asset = (
+            episode.media_assets
+            .filter(asset_type__in=[AssetType.VIDEO, AssetType.AUDIO])
+            .exclude(ingestion_status=IngestionStatus.FAILED)
+            .order_by(
+                # prefer video over audio, then most recently created
+                models.Case(
+                    models.When(asset_type=AssetType.VIDEO, then=0),
+                    models.When(asset_type=AssetType.AUDIO, then=1),
+                    default=2,
+                    output_field=models.IntegerField(),
+                ),
+                "-created_at",
+            )
+            .first()
+        )
+        if media_asset is None:
+            raise RuntimeError(
+                f"Episode '{episode.title}' has no media assets and no transcript. "
+                "Upload a video or audio file first."
+            )
+
+        logger.info(
+            "No transcript found for episode '%s' — auto-transcribing MediaAsset %s",
+            episode.title, media_asset.pk,
+        )
+        transcript = transcribe_media_asset(media_asset, user=user)
 
     identifier = _get_identifier()
     clips = identifier.identify(

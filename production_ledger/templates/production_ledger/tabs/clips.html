@@ -25,7 +25,7 @@
                 </h4>
                 <p class="text-sm text-indigo-700 mt-1">
                     Analyzes your transcript to find the most engaging moments and writes platform-specific captions with CTAs.
-                    {% if not latest_transcript %}<span class="font-medium text-amber-700"> No transcript yet — will auto-transcribe on identify.</span>{% endif %}
+                    {% if not latest_transcript %}<span class="font-medium text-amber-600"> No transcript yet — will auto-transcribe your video before identifying clips.</span>{% endif %}
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2 sm:flex-nowrap">
@@ -39,7 +39,7 @@
                         :disabled="identifying"
                         class="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
                     <svg class="w-4 h-4" :class="identifying ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                    <span x-text="identifying ? 'Identifying\u2026' : 'Identify Shorts'"></span>
+                    <span x-text="identifyLabel"></span>
                 </button>
             </div>
         </div>
@@ -325,6 +325,7 @@ function shortsManager(identifyUrl, renderAllUrl, csrfToken) {
         identifyAspect: '9:16',
         identifyCount: 5,
         identifying: false,
+        identifyLabel: 'Identify Shorts',
         identifyError: '',
         identifySuccess: '',
         renderingAll: false,
@@ -332,8 +333,19 @@ function shortsManager(identifyUrl, renderAllUrl, csrfToken) {
 
         async identifyShorts() {
             this.identifying = true;
+            this.identifyLabel = 'Starting\u2026';
             this.identifyError = '';
             this.identifySuccess = '';
+
+            // After 3s without a response assume transcription is running
+            const transcribeHint = setTimeout(() => {
+                if (this.identifying) this.identifyLabel = 'Transcribing video\u2026';
+            }, 3000);
+            // After 30s switch to AI identifying label
+            const identifyHint = setTimeout(() => {
+                if (this.identifying) this.identifyLabel = 'AI identifying clips\u2026';
+            }, 30000);
+
             try {
                 const r = await fetch(this.identifyUrl, {
                     method: 'POST',
@@ -342,12 +354,15 @@ function shortsManager(identifyUrl, renderAllUrl, csrfToken) {
                 });
                 const d = await r.json();
                 if (!r.ok) throw new Error(d.error || 'Identification failed.');
-                this.identifySuccess = `AI identified ${d.count} short${d.count !== 1 ? 's' : ''}! Refreshing…`;
+                this.identifySuccess = `AI identified ${d.count} short${d.count !== 1 ? 's' : ''}! Refreshing\u2026`;
                 setTimeout(() => location.reload(), 1800);
             } catch (e) {
                 this.identifyError = e.message;
             } finally {
+                clearTimeout(transcribeHint);
+                clearTimeout(identifyHint);
                 this.identifying = false;
+                this.identifyLabel = 'Identify Shorts';
             }
         },
 
