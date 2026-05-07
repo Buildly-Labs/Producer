@@ -100,10 +100,7 @@
 
         <!-- Upload File Form (browser → Spaces direct upload — no Django in the path, no timeout) -->
         <div x-show="activeTab === 'upload'" x-cloak class="p-4"
-             x-data="directUpload()"
-             data-presign-url="{% url 'production_ledger:api_media_presign' episode_id=episode.pk %}"
-             data-confirm-url="{% url 'production_ledger:api_media_confirm' episode_id=episode.pk %}"
-             data-csrf="{{ csrf_token }}">
+             x-data="directUpload('{% url 'production_ledger:api_media_presign' episode_id=episode.pk %}', '{% url 'production_ledger:api_media_confirm' episode_id=episode.pk %}', '{{ csrf_token }}')">
             <p class="text-sm text-gray-600 mb-4">
                 Files upload directly from your browser to cloud storage — no size limit or server timeout.
             </p>
@@ -279,8 +276,11 @@
 </div>
 
 <script>
-function directUpload() {
+function directUpload(presignUrl, confirmUrl, csrfToken) {
     return {
+        presignUrl: presignUrl,
+        confirmUrl: confirmUrl,
+        csrfToken: csrfToken,
         assetType: 'video',
         label: '',
         file: null,
@@ -308,16 +308,12 @@ function directUpload() {
             this.uploading = true;
             this.progress = 0;
             this.error = '';
-            const el = this.$el;
-            const presignUrl = el.dataset.presignUrl;
-            const confirmUrl = el.dataset.confirmUrl;
-            const csrfToken  = el.dataset.csrf;
 
             try {
                 // Step 1: ask Django for a short-lived presigned PUT URL
-                const presignResp = await fetch(presignUrl, {
+                const presignResp = await fetch(this.presignUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken },
                     body: JSON.stringify({
                         filename:     this.fileName,
                         content_type: this.contentType,
@@ -352,9 +348,9 @@ function directUpload() {
                 this.progress = 95;
 
                 // Step 3: tell Django the upload finished → creates MediaAsset + sets public ACL
-                const confirmResp = await fetch(confirmUrl, {
+                const confirmResp = await fetch(this.confirmUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken },
                     body: JSON.stringify({
                         key,
                         public_url,
