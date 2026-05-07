@@ -68,6 +68,7 @@ def _build_client():
         endpoint_url=cfg["endpoint"],
         aws_access_key_id=cfg["key"],
         aws_secret_access_key=cfg["secret"],
+        config=boto3.session.Config(s3={"addressing_style": "virtual"}),
     )
 
 
