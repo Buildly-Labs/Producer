@@ -1035,6 +1035,11 @@ class VideoShort(BaseModel):
     title = models.CharField(max_length=255)
     caption = models.TextField(blank=True, help_text="Platform caption / description for the short")
     hashtags = models.JSONField(default=list, blank=True, help_text="List of hashtag strings")
+    platform_captions = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Per-platform captions: {"tiktok": "...", "youtube_shorts": "...", "instagram": "...", "linkedin": "..."}',
+    )
 
     # Timing (copied from ClipMoment or set manually)
     start_ms = models.PositiveIntegerField(help_text="Start time in milliseconds")

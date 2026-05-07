@@ -994,8 +994,10 @@ class EpisodeClipsView(EpisodeTabMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['clips'] = self.get_episode().clip_moments.all().order_by('start_ms')
-        context['latest_transcript'] = self.get_episode().transcripts.order_by('-revision').first()
+        episode = self.get_episode()
+        context['clips'] = episode.clip_moments.all().order_by('start_ms')
+        context['video_shorts'] = episode.video_shorts.all().order_by('start_ms')
+        context['latest_transcript'] = episode.transcripts.order_by('-revision').first()
         context['clip_form'] = ClipMomentForm()
         context['priorities'] = ClipPriority.CHOICES
         return context

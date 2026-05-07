@@ -7,10 +7,11 @@ Workflow:
   2. Clip moments are stored as ClipMoment + VideoShort (status=QUEUED).
   3. A render step uses ffmpeg to cut the clip from the source video and
      re-encode it for the target aspect ratio (vertical 9:16, square 1:1,
-     or horizontal 16:9).
+     or horizontal 16:9).  A text overlay (hook + CTA) is burned in if fonts
+     are available; otherwise a clean crop is used.
   4. The rendered clip is uploaded to DO Spaces; VideoShort.public_url is set
      and status advances to READY.
-  5. The shareable CDN link is returned per short.
+  5. Shareable CDN links + per-platform captions are returned per short.
 
 Environment variables:
   AI_PROVIDER              — 'openai' | 'digitalocean' (default: digitalocean when
@@ -22,6 +23,8 @@ Environment variables:
   SHORTS_MAX_CLIPS         — Max clips to identify per episode (default: 5)
   SHORTS_MIN_DURATION      — Minimum clip duration in seconds (default: 20)
   SHORTS_MAX_DURATION      — Maximum clip duration in seconds (default: 90)
+  SHORTS_CTA_URL           — Website CTA shown in video overlay (default: firstcityfoundry.com)
+  SHORTS_YOUTUBE_HANDLE    — YouTube channel handle for CTAs (default: @FirstCityFoundry)
 
 ffmpeg must be available on PATH for rendering.
 """
@@ -39,6 +42,8 @@ logger = logging.getLogger(__name__)
 SHORTS_MAX_CLIPS = int(os.environ.get("SHORTS_MAX_CLIPS", "5"))
 SHORTS_MIN_DURATION = int(os.environ.get("SHORTS_MIN_DURATION", "20"))
 SHORTS_MAX_DURATION = int(os.environ.get("SHORTS_MAX_DURATION", "90"))
+SHORTS_CTA_URL = os.environ.get("SHORTS_CTA_URL", "firstcityfoundry.com")
+SHORTS_YOUTUBE_HANDLE = os.environ.get("SHORTS_YOUTUBE_HANDLE", "@FirstCityFoundry")
 
 
 # ---------------------------------------------------------------------------
@@ -46,8 +51,54 @@ SHORTS_MAX_DURATION = int(os.environ.get("SHORTS_MAX_DURATION", "90"))
 # ---------------------------------------------------------------------------
 
 _IDENTIFY_PROMPT = """\
-You are a podcast producer specialising in short-form video. Given the transcript
-segments below, identify the {max_clips} most compelling moments that would make
+You are a social media strategist and podcast producer specialising in short-form
+video content that drives audience growth. Your goal is to turn long-form podcast
+or interview content into viral short clips for TikTok, YouTube Shorts, and
+Instagram Reels that compel viewers to visit {cta_url} and watch the full episode
+on the {youtube_handle} YouTube channel.
+
+Given the transcript segments below, identify the {max_clips} most compelling
+moments that would make high-performing short-form clips.
+
+Each clip must:
+- Be between {min_dur}–{max_dur} seconds long.
+- Start and end at natural speech boundaries.
+- Open with a pattern interrupt or strong hook in the first 3 seconds.
+- Be self-contained and emotionally resonant without the full episode context.
+- Drive curiosity so viewers seek out the full episode.
+
+For every clip, write platform-specific captions:
+- TikTok: conversational, energetic, 150–220 chars, uses relevant trending hashtags, ends with a curiosity hook or question.
+- YouTube Shorts: 200–300 chars, includes the show/brand context, CTA to watch full episode at {youtube_handle}, uses relevant hashtags.
+- Instagram Reels: polished, 200–250 chars, storytelling tone, IG-relevant hashtags, emoji-accented, CTA to link in bio.
+- LinkedIn: professional insight framing, 250–350 chars, why this matters for business/creators, minimal hashtags (3 max).
+
+All captions should eventually funnel viewers to {cta_url} and the full YouTube content.
+
+Return ONLY a JSON array (no extra text) with exactly this schema:
+[
+  {{
+    "start_seconds": 42.5,
+    "end_seconds": 87.0,
+    "title": "Short punchy title (max 60 chars)",
+    "hook": "Pattern-interrupt opening line (max 100 chars) — first words spoken or supered on screen",
+    "cta_overlay": "Bottom-of-screen CTA text (max 50 chars), e.g. 'Watch full episode → {cta_url}'",
+    "caption": "Primary caption (TikTok default, max 220 chars)",
+    "platform_captions": {{
+      "tiktok": "TikTok caption (max 220 chars, energetic, hashtags)",
+      "youtube_shorts": "YouTube Shorts caption (max 300 chars, CTA to {youtube_handle})",
+      "instagram": "Instagram Reels caption (max 250 chars, storytelling, emoji)",
+      "linkedin": "LinkedIn caption (max 350 chars, professional insight)"
+    }},
+    "hashtags": ["#hashtag1", "#hashtag2"],
+    "priority": "gold|silver|bronze"
+  }},
+  ...
+]
+
+TRANSCRIPT SEGMENTS:
+{segments}
+"""
 engaging short-form clips (TikTok / Instagram Reels / YouTube Shorts).
 
 Each clip must:
@@ -83,8 +134,15 @@ class _MockClipIdentifier:
                 "start_seconds": 30.0,
                 "end_seconds": 60.0,
                 "title": "The moment everything changed",
-                "hook": "Nobody expected this answer about AI.",
-                "caption": "This is a placeholder short clip. Real AI clip detection will replace this.",
+                "hook": "Nobody expected this answer.",
+                "cta_overlay": f"Watch full episode → {SHORTS_CTA_URL}",
+                "caption": "Nobody expected this answer about AI — and it changes everything. 🔥 Watch the full breakdown.",
+                "platform_captions": {
+                    "tiktok": "Nobody expected THIS answer about AI 😳 Drop a 🔥 if this hit different. Full episode link in bio! #AIpodcast #podcast #tech #mindblown",
+                    "youtube_shorts": f"Nobody expected this answer about AI. Watch the full deep-dive at {SHORTS_YOUTUBE_HANDLE} — link in description! #Shorts #AIPodcast #TechTalk",
+                    "instagram": f"That moment when the answer you didn't expect changes everything… 🤯✨ Full episode on YouTube — link in bio. Follow for more insights from {SHORTS_CTA_URL} #Podcast #AIInsights #TechCreators",
+                    "linkedin": f"A surprising insight from our latest podcast episode that every business leader should hear. Watch the full episode at {SHORTS_CTA_URL} and subscribe to {SHORTS_YOUTUBE_HANDLE} for weekly content. #Leadership #AI #Podcast",
+                },
                 "hashtags": ["#AI", "#podcast", "#tech"],
                 "priority": "gold",
             },
@@ -93,8 +151,15 @@ class _MockClipIdentifier:
                 "end_seconds": 125.0,
                 "title": "What experts actually think",
                 "hook": "The real story behind AI in 2026.",
-                "caption": "Another placeholder short clip from mock provider.",
-                "hashtags": ["#AI", "#future"],
+                "cta_overlay": f"Full episode → {SHORTS_CTA_URL}",
+                "caption": "What experts actually think about AI — and why it matters for you. Full breakdown in the episode.",
+                "platform_captions": {
+                    "tiktok": "What experts ACTUALLY think about AI in 2026 👀 This is the take nobody's saying out loud. Link in bio for full episode! #AI #FutureTech #podcast",
+                    "youtube_shorts": f"The expert opinion on AI that most people miss. Subscribe to {SHORTS_YOUTUBE_HANDLE} for the full episode and more. #Shorts #AI #PodcastClip",
+                    "instagram": f"Real talk from real experts — this is what AI in 2026 actually looks like 🎙️ Catch the full conversation on YouTube. Follow + link in bio 👉 {SHORTS_CTA_URL} #AITrends #FutureOfWork",
+                    "linkedin": f"Cutting through the noise on AI: this expert perspective reframes the conversation entirely. Full episode at {SHORTS_CTA_URL} #AI #Innovation #Leadership",
+                },
+                "hashtags": ["#AI", "#future", "#tech"],
                 "priority": "silver",
             },
         ][:max_clips]
@@ -135,6 +200,8 @@ class _OpenAIClipIdentifier:
             min_dur=min_dur,
             max_dur=max_dur,
             segments=segment_text,
+            cta_url=SHORTS_CTA_URL,
+            youtube_handle=SHORTS_YOUTUBE_HANDLE,
         )
 
         response = self._client.chat.completions.create(
@@ -190,10 +257,45 @@ _ASPECT_FILTERS = {
     "16:9": "scale=1920:1080:flags=lanczos",
 }
 
+# Candidate font paths (tried in order; first found wins)
+_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+]
 
-def _render_clip(source_path: str, start_seconds: float, end_seconds: float, aspect_ratio: str, out_path: str) -> None:
+
+def _find_font() -> Optional[str]:
+    for p in _FONT_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def _escape_drawtext(text: str) -> str:
+    """Escape special characters for ffmpeg drawtext."""
+    return (
+        text.replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace(":", "\\:")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
+    )
+
+
+def _render_clip(
+    source_path: str,
+    start_seconds: float,
+    end_seconds: float,
+    aspect_ratio: str,
+    out_path: str,
+    hook_text: str = "",
+    cta_text: str = "",
+) -> None:
     """
-    Use ffmpeg to cut and re-encode a clip.
+    Use ffmpeg to cut, re-encode, and optionally overlay text on a clip.
 
     Args:
         source_path:   Local path to the source video.
@@ -201,9 +303,52 @@ def _render_clip(source_path: str, start_seconds: float, end_seconds: float, asp
         end_seconds:   Clip end in seconds.
         aspect_ratio:  One of '9:16', '1:1', '16:9'.
         out_path:      Destination path for the rendered mp4.
+        hook_text:     Optional hook shown at top for first 4 seconds.
+        cta_text:      Optional CTA shown at bottom for last 5 seconds.
     """
-    vf = _ASPECT_FILTERS.get(aspect_ratio, _ASPECT_FILTERS["9:16"])
+    crop_filter = _ASPECT_FILTERS.get(aspect_ratio, _ASPECT_FILTERS["9:16"])
     duration = end_seconds - start_seconds
+    font = _find_font()
+
+    # Build video filter chain
+    vf_parts = [crop_filter]
+
+    if font and (hook_text or cta_text):
+        # Resolution depends on aspect ratio
+        w_map = {"9:16": 1080, "1:1": 1080, "16:9": 1920}
+        h_map = {"9:16": 1920, "1:1": 1080, "16:9": 1080}
+        w = w_map.get(aspect_ratio, 1080)
+        h = h_map.get(aspect_ratio, 1920)
+        font_size = max(38, w // 22)
+        safe_zone = int(w * 0.05)
+
+        if hook_text:
+            safe_hook = _escape_drawtext(hook_text[:80])
+            # Semi-transparent dark band behind hook text
+            vf_parts.append(
+                f"drawbox=x=0:y={safe_zone}:w={w}:h={font_size + 24}:color=black@0.55:t=fill"
+            )
+            vf_parts.append(
+                f"drawtext=fontfile='{font}':text='{safe_hook}'"
+                f":fontcolor=white:fontsize={font_size}:borderw=2:bordercolor=black"
+                f":x=(w-text_w)/2:y={safe_zone + 12}"
+                f":enable='between(t,0,4)'"
+            )
+
+        if cta_text:
+            safe_cta = _escape_drawtext(cta_text[:50])
+            cta_y = h - font_size - safe_zone - 24
+            vf_parts.append(
+                f"drawbox=x=0:y={cta_y - 12}:w={w}:h={font_size + 24}:color=black@0.65:t=fill"
+            )
+            vf_parts.append(
+                f"drawtext=fontfile='{font}':text='{safe_cta}'"
+                f":fontcolor=white:fontsize={font_size}:borderw=2:bordercolor=black"
+                f":x=(w-text_w)/2:y={cta_y}"
+                f":enable='between(t,{max(0, duration - 5)},{duration})'"
+            )
+
+    vf = ",".join(vf_parts)
 
     cmd = [
         "ffmpeg", "-y",
@@ -321,6 +466,7 @@ def identify_and_queue_shorts(
             title=clip.get("title", "Untitled short"),
             caption=clip.get("caption", ""),
             hashtags=clip.get("hashtags", []),
+            platform_captions=clip.get("platform_captions", {}),
             start_ms=start_ms,
             end_ms=end_ms,
             aspect_ratio=aspect_ratio,
@@ -372,7 +518,17 @@ def render_short(video_short, source_video_path: Optional[str] = None, user=None
             out_filename = f"short_{video_short.id}.mp4"
             out_path = os.path.join(tmp_dir, out_filename)
 
-            _render_clip(source_video_path, start_s, end_s, ratio, out_path)
+            # Pull hook and CTA from the linked ClipMoment (or fall back)
+            hook_text = ""
+            cta_text = f"Watch full episode \u2192 {SHORTS_CTA_URL}"
+            if video_short.clip_moment:
+                hook_text = video_short.clip_moment.hook or ""
+
+            _render_clip(
+                source_video_path, start_s, end_s, ratio, out_path,
+                hook_text=hook_text,
+                cta_text=cta_text,
+            )
 
             # ── 3. Upload to DO Spaces ────────────────────────────────────
             video_short.status = ShortStatus.UPLOADING
