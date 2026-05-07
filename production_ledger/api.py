@@ -1445,6 +1445,15 @@ class MediaAssetConfirmUploadAPI(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        # Make the object publicly readable now that the DB record is confirmed.
+        # ACL was not signed into the presigned URL (for browser CORS compatibility),
+        # so we set it here server-side instead.
+        try:
+            from .services import storage as _storage  # noqa: PLC0415
+            _storage.make_public(key)
+        except Exception as exc:
+            logger.warning('Could not set public ACL on %s: %s', key, exc)
+
         return Response({'id': str(asset.id), 'public_url': public_url},
                         status=status.HTTP_201_CREATED)
 

@@ -4,12 +4,13 @@ DigitalOcean Spaces Storage Service.
 Provides an S3-compatible interface for uploading, downloading, and managing
 media files (video, audio, podcast feeds, rendered shorts) on DO Spaces.
 
-Uses the same variable names as the rest of the project:
-    AWS_STORAGE_BUCKET_NAME = 'cms-static'
-    AWS_ACCESS_KEY_ID       = 'DO00MW9V6QPPJKVCGHYA'
-    AWS_SECRET_ACCESS_KEY   = os.environ.get("SPACES_SECRET")
-    AWS_S3_CUSTOM_DOMAIN    = 'cms-static.nyc3.digitaloceanspaces.com'
-    AWS_S3_ENDPOINT_URL     = 'https://nyc3.digitaloceanspaces.com'
+Required environment variables (add to .env):
+    AWS_STORAGE_BUCKET_NAME  — your Spaces bucket name
+    AWS_ACCESS_KEY_ID        — Spaces access key ID
+    SPACES_SECRET            — Spaces secret key
+    AWS_S3_ENDPOINT_URL      — e.g. https://nyc3.digitaloceanspaces.com
+    AWS_S3_CUSTOM_DOMAIN     — e.g. your-bucket.nyc3.digitaloceanspaces.com
+    AWS_REGION               — e.g. nyc3
 """
 import hashlib
 import logging
@@ -27,22 +28,34 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Spaces config — mirrors existing project settings
 # ---------------------------------------------------------------------------
-AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME', 'cms-static')
-AWS_ACCESS_KEY_ID       = os.getenv('AWS_ACCESS_KEY_ID', 'DO00MW9V6QPPJKVCGHYA')
-AWS_SECRET_ACCESS_KEY   = os.getenv('SPACES_SECRET')
-AWS_S3_CUSTOM_DOMAIN    = os.getenv('AWS_S3_CUSTOM_DOMAIN', 'cms-static.nyc3.digitaloceanspaces.com')
-AWS_S3_ENDPOINT_URL     = os.getenv('AWS_S3_ENDPOINT_URL', 'https://nyc3.digitaloceanspaces.com')
-_SPACES_REGION          = os.getenv('AWS_REGION', 'nyc3')
-
-
 def _get_spaces_config() -> dict:
+    """Always read from environment at call time so .env loaded after import works."""
+    bucket    = os.getenv('AWS_STORAGE_BUCKET_NAME', '')
+    key_id    = os.getenv('AWS_ACCESS_KEY_ID', '')
+    secret    = os.getenv('SPACES_SECRET') or os.getenv('AWS_SECRET_ACCESS_KEY', '')
+    region    = os.getenv('AWS_REGION', 'nyc3')
+    endpoint  = os.getenv('AWS_S3_ENDPOINT_URL', f'https://{region}.digitaloceanspaces.com')
+    custom_domain = os.getenv('AWS_S3_CUSTOM_DOMAIN', f'{bucket}.{region}.digitaloceanspaces.com')
+
+    if not bucket or not key_id or not secret:
+        missing = [k for k, v in [
+            ('AWS_STORAGE_BUCKET_NAME', bucket),
+            ('AWS_ACCESS_KEY_ID', key_id),
+            ('SPACES_SECRET', secret),
+        ] if not v]
+        raise RuntimeError(
+            f"DigitalOcean Spaces is not configured. "
+            f"Missing environment variable(s): {', '.join(missing)}. "
+            f"Add them to your .env file."
+        )
+
     return {
-        "key": AWS_ACCESS_KEY_ID,
-        "secret": AWS_SECRET_ACCESS_KEY or "",
-        "region": _SPACES_REGION,
-        "bucket": AWS_STORAGE_BUCKET_NAME,
-        "endpoint": AWS_S3_ENDPOINT_URL,
-        "cdn_endpoint": f"https://{AWS_S3_CUSTOM_DOMAIN}",
+        "key": key_id,
+        "secret": secret,
+        "region": region,
+        "bucket": bucket,
+        "endpoint": endpoint,
+        "cdn_endpoint": f"https://{custom_domain}",
     }
 
 
@@ -60,7 +73,7 @@ def _build_client():
 
 def _public_url(key: str) -> str:
     """Return the public CDN URL for a Spaces object key."""
-    cdn = f"https://{AWS_S3_CUSTOM_DOMAIN}".rstrip("/")
+    cdn = _get_spaces_config()["cdn_endpoint"].rstrip("/")
     return f"{cdn}/{key}"
 
 
@@ -230,13 +243,15 @@ def generate_presigned_upload_url(
     client = _build_client()
     cfg = _get_spaces_config()
 
+    # Do NOT sign ACL here — that would require the browser to send x-amz-acl
+    # as a custom header, which needs an extra CORS preflight round-trip.
+    # Instead, the confirm endpoint calls make_public() server-side after upload.
     url = client.generate_presigned_url(
         "put_object",
         Params={
             "Bucket": cfg["bucket"],
             "Key": key,
             "ContentType": content_type,
-            "ACL": "public-read",
         },
         ExpiresIn=expires,
     )
@@ -245,6 +260,17 @@ def generate_presigned_upload_url(
         "key": key,
         "public_url": _public_url(key),
     }
+
+
+def make_public(key: str) -> None:
+    """
+    Set ACL on an already-uploaded object to public-read.
+    Called by the confirm endpoint after a direct browser upload.
+    """
+    cfg = _get_spaces_config()
+    client = _build_client()
+    client.put_object_acl(Bucket=cfg["bucket"], Key=key, ACL="public-read")
+    logger.info("Set public-read ACL on DO Spaces object: %s", key)
 
 
 def cover_art_key(organization_uuid: str, show_slug: str, filename: str) -> str:

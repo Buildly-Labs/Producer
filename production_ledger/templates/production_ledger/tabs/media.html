@@ -98,40 +98,66 @@
             </div>
         </div>
 
-        <!-- Upload File Form (server-side multipart upload) -->
-        <div x-show="activeTab === 'upload'" x-cloak class="p-4">
-            <div class="mb-3">
-                <p class="text-sm text-gray-600">
-                    Upload files normally. The backend will transfer them to cloud storage.
-                </p>
-            </div>
+        <!-- Upload File Form (browser → Spaces direct upload — no Django in the path, no timeout) -->
+        <div x-show="activeTab === 'upload'" x-cloak class="p-4"
+             x-data="directUpload()"
+             data-presign-url="{% url 'production_ledger:api_media_presign' episode_id=episode.pk %}"
+             data-confirm-url="{% url 'production_ledger:api_media_confirm' episode_id=episode.pk %}"
+             data-csrf="{{ csrf_token }}">
+            <p class="text-sm text-gray-600 mb-4">
+                Files upload directly from your browser to cloud storage — no size limit or server timeout.
+            </p>
 
-            <form method="post" enctype="multipart/form-data" class="space-y-4">
-                {% csrf_token %}
-                <input type="hidden" name="form_type" value="upload">
+            <div class="space-y-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Type</label>
-                        {{ upload_form.asset_type }}
+                        <select x-model="assetType"
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                            <option value="video">Video</option>
+                            <option value="audio">Audio</option>
+                        </select>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700">Label</label>
-                        {{ upload_form.label }}
+                        <label class="block text-sm font-medium text-gray-700">Label (optional)</label>
+                        <input type="text" x-model="label" placeholder="e.g. Episode 12 Master"
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
                     </div>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700">File <span class="text-red-500">*</span></label>
-                    {{ upload_form.file }}
-                    <p class="mt-1 text-xs text-gray-500">
-                        Large files are accepted; upload happens server-side to avoid browser CORS errors.
-                    </p>
+                    <input type="file" @change="pickFile" accept="audio/*,video/*"
+                           class="block w-full text-sm text-gray-500 mt-1"
+                           :disabled="uploading">
+                    <p class="mt-1 text-xs text-gray-500"
+                       x-show="fileName"
+                       x-text="fileName + ' (' + (fileSize / 1048576).toFixed(1) + ' MB)'"></p>
                 </div>
+
+                <!-- Progress bar -->
+                <div x-show="uploading" class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div class="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                         :style="'width:' + progress + '%'"></div>
+                </div>
+                <p class="text-sm text-blue-700" x-show="uploading"
+                   x-text="progress < 95 ? 'Uploading\u2026 ' + progress + '%' : 'Saving record\u2026'"></p>
+
+                <!-- Error -->
+                <div x-show="error" class="rounded-md bg-red-50 p-3">
+                    <p class="text-sm text-red-700" x-text="error"></p>
+                </div>
+                <!-- Success -->
+                <p class="text-sm text-green-700 font-medium" x-show="success">Upload complete — refreshing\u2026</p>
+
                 <div class="flex justify-end">
-                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
-                        Upload
+                    <button type="button" @click="upload"
+                            :disabled="uploading || !file"
+                            class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span x-show="!uploading">Upload</span>
+                        <span x-show="uploading">Uploading\u2026</span>
                     </button>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
     {% endif %}
@@ -253,3 +279,108 @@
 </div>
 
 {% endblock %}
+
+<script>
+function directUpload() {
+    return {
+        assetType: 'video',
+        label: '',
+        file: null,
+        fileName: '',
+        fileSize: 0,
+        contentType: '',
+        uploading: false,
+        progress: 0,
+        error: '',
+        success: false,
+
+        pickFile(e) {
+            const f = e.target.files[0];
+            if (!f) return;
+            this.file = f;
+            this.fileName = f.name;
+            this.fileSize = f.size;
+            this.contentType = f.type || 'application/octet-stream';
+            this.error = '';
+            this.success = false;
+        },
+
+        async upload() {
+            if (!this.file) { this.error = 'Please select a file first.'; return; }
+            this.uploading = true;
+            this.progress = 0;
+            this.error = '';
+            const el = this.$el;
+            const presignUrl = el.dataset.presignUrl;
+            const confirmUrl = el.dataset.confirmUrl;
+            const csrfToken  = el.dataset.csrf;
+
+            try {
+                // Step 1: ask Django for a short-lived presigned PUT URL
+                const presignResp = await fetch(presignUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({
+                        filename:     this.fileName,
+                        content_type: this.contentType,
+                        asset_type:   this.assetType,
+                    }),
+                });
+                if (!presignResp.ok) {
+                    const d = await presignResp.json().catch(() => ({}));
+                    throw new Error(d.detail || 'Could not get upload URL — check Spaces configuration.');
+                }
+                const { url, key, public_url } = await presignResp.json();
+                this.progress = 5;
+
+                // Step 2: PUT the file DIRECTLY to DO Spaces — Django is not in this path
+                await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('PUT', url);
+                    xhr.setRequestHeader('Content-Type', this.contentType);
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            this.progress = 5 + Math.round((e.loaded / e.total) * 88);
+                        }
+                    };
+                    xhr.onload = () => {
+                        (xhr.status >= 200 && xhr.status < 300)
+                            ? resolve()
+                            : reject(new Error('Storage upload failed (HTTP ' + xhr.status + '). Check bucket CORS configuration.'));
+                    };
+                    xhr.onerror = () => reject(new Error('Network error during upload to storage.'));
+                    xhr.send(this.file);
+                });
+                this.progress = 95;
+
+                // Step 3: tell Django the upload finished → creates MediaAsset + sets public ACL
+                const confirmResp = await fetch(confirmUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({
+                        key,
+                        public_url,
+                        asset_type:   this.assetType,
+                        filename:     this.fileName,
+                        file_size:    this.fileSize,
+                        content_type: this.contentType,
+                        label:        this.label || '',
+                    }),
+                });
+                if (!confirmResp.ok) {
+                    const d = await confirmResp.json().catch(() => ({}));
+                    throw new Error(d.detail || 'File reached storage but the database record could not be created.');
+                }
+                this.progress = 100;
+                this.success = true;
+                setTimeout(() => location.reload(), 1500);
+
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.uploading = false;
+            }
+        },
+    };
+}
+</script>
