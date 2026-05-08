@@ -1,29 +1,41 @@
 """
 Audio extraction service — strips audio from a video file and optionally
-prepends an intro announcement over a music bed.
+inserts an intro announcement at a configurable position.
 
 All processing is done in a temp directory using ffmpeg (must be on PATH).
 The result is an MP3 suitable for podcast RSS distribution.
 
 Intro announcement flow (when enabled):
-  1. Generate a spoken intro from the episode title + show name using the
-     system TTS engine (espeak on Linux, 'say' on macOS).  Falls back to
-     silence if TTS is unavailable.
-  2. Mix the spoken intro over a short 15-second royalty-free music bed
-     (a simple 440 Hz fade-in/fade-out tone generated entirely by ffmpeg —
-     no external audio assets required).
-  3. Concatenate the intro with the extracted podcast audio.
+  1. A pre-generated TTS intro MP3 can be passed in directly (from the
+     browser preview workflow), or one will be generated on the fly.
+  2. The intro is inserted at *insert_at_seconds* within the extracted audio:
+     - 0 = prepend before all episode audio (default)
+     - N = split episode at N seconds, insert intro between the two halves
+
+TTS generation (when no pre-made intro is supplied):
+  - Primary:  OpenAI TTS API (tts-1-hd, voice configurable)
+  - Fallback: macOS 'say' or Linux espeak-ng
 
 Usage::
 
     from .audio_extraction import extract_audio_from_video
 
+    # Basic: auto-generate intro with OpenAI TTS, inserted at start
     audio_path, duration = extract_audio_from_video(
         video_url="https://cdn.example.com/video.mp4",
         episode_title="Episode 12: Building in Public",
         show_name="The Forge Podcast",
         add_intro=True,
-        intro_text=None,   # auto-generated from title + show_name
+    )
+
+    # Advanced: use a pre-previewed intro, insert 30 seconds into episode
+    audio_path, duration = extract_audio_from_video(
+        video_url="https://cdn.example.com/video.mp4",
+        episode_title="Episode 12: Building in Public",
+        show_name="The Forge Podcast",
+        add_intro=True,
+        intro_audio_path=Path("/tmp/forge_tts_abc.mp3"),
+        insert_at_seconds=30,
     )
     # audio_path is a pathlib.Path to a temp .mp3 — caller is responsible for cleanup
 """
@@ -49,10 +61,28 @@ def extract_audio_from_video(
     show_name: str,
     add_intro: bool = False,
     intro_text: str | None = None,
+    intro_audio_path: Path | None = None,
+    insert_at_seconds: float = 0.0,
+    intro_voice: str = "onyx",
+    intro_model: str = "tts-1-hd",
     bitrate: str = "192k",
 ) -> tuple[Path, int]:
     """
-    Download *video_url*, extract audio as MP3, optionally prepend an intro.
+    Download *video_url*, extract audio as MP3, optionally insert an intro.
+
+    Args:
+        video_url:          Direct URL to the video file.
+        episode_title:      Used to auto-generate intro text if needed.
+        show_name:          Used to auto-generate intro text if needed.
+        add_intro:          Whether to include an intro announcement.
+        intro_text:         Custom intro text (auto-generated if None).
+        intro_audio_path:   Pre-generated intro MP3 path (from browser preview).
+                            If supplied, skip TTS generation.
+        insert_at_seconds:  Where to insert the intro inside the episode audio.
+                            0 = prepend at start (default). N = split at Ns.
+        intro_voice:        OpenAI TTS voice (alloy/echo/fable/onyx/nova/shimmer).
+        intro_model:        OpenAI TTS model (tts-1 or tts-1-hd).
+        bitrate:            Output MP3 bitrate (128k / 192k / 320k).
 
     Returns:
         (output_path, duration_seconds) — caller must delete the temp dir.
@@ -69,10 +99,25 @@ def extract_audio_from_video(
         _extract_audio(video_path, raw_audio, bitrate)
 
         if add_intro:
-            text = intro_text or _default_intro_text(episode_title, show_name)
-            intro_mp3 = _build_intro(text, work_dir)
+            if intro_audio_path and intro_audio_path.exists():
+                # Use pre-generated TTS from browser preview
+                intro_mp3 = intro_audio_path
+            else:
+                # Generate TTS (OpenAI first, system fallback)
+                text = intro_text or _default_intro_text(episode_title, show_name)
+                intro_mp3 = _build_intro(
+                    text, work_dir,
+                    voice=intro_voice, model=intro_model,
+                )
+
             final_mp3 = work_dir / "final.mp3"
-            _concat_audio([intro_mp3, raw_audio], final_mp3, bitrate)
+            if insert_at_seconds > 0:
+                _insert_intro_at_offset(
+                    raw_audio, intro_mp3, final_mp3,
+                    insert_at_seconds, bitrate,
+                )
+            else:
+                _concat_audio([intro_mp3, raw_audio], final_mp3, bitrate)
         else:
             final_mp3 = raw_audio
 
@@ -128,12 +173,48 @@ def _extract_audio(video_path: Path, out_mp3: Path, bitrate: str) -> None:
     ], stage="extract")
 
 
-def _build_intro(text: str, work_dir: Path) -> Path:
+def _insert_intro_at_offset(
+    episode_mp3: Path,
+    intro_mp3: Path,
+    out_mp3: Path,
+    offset_seconds: float,
+    bitrate: str,
+) -> None:
+    """
+    Insert *intro_mp3* at *offset_seconds* inside *episode_mp3*.
+
+    Produces:  episode[0..offset]  +  intro  +  episode[offset..end]
+    """
+    parent = out_mp3.parent
+    before = parent / "seg_before.mp3"
+    after  = parent / "seg_after.mp3"
+
+    # Trim before segment
+    _run_ffmpeg([
+        "-i", str(episode_mp3),
+        "-t", str(offset_seconds),
+        "-vn", "-ar", "44100", "-ac", "2", "-b:a", bitrate, "-y",
+        str(before),
+    ], stage="split_before")
+
+    # Trim after segment
+    _run_ffmpeg([
+        "-i", str(episode_mp3),
+        "-ss", str(offset_seconds),
+        "-vn", "-ar", "44100", "-ac", "2", "-b:a", bitrate, "-y",
+        str(after),
+    ], stage="split_after")
+
+    _concat_audio([before, intro_mp3, after], out_mp3, bitrate)
+
+
+def _build_intro(text: str, work_dir: Path, voice: str = "onyx", model: str = "tts-1-hd") -> Path:
     """
     Build a short intro MP3: spoken announcement mixed over a music bed.
 
-    Music bed = 15s tone (sine 220 Hz, fade in/out) generated by ffmpeg.
-    Spoken voice = system TTS if available, otherwise silence pad.
+    Primary TTS: OpenAI API (uses .tts module).
+    Fallback:    espeak-ng / macOS 'say'.
+    Music bed:   15s sine wave generated by ffmpeg.
     """
     music_path = work_dir / "music_bed.mp3"
     voice_path = work_dir / "voice.mp3"
@@ -149,8 +230,8 @@ def _build_intro(text: str, work_dir: Path) -> Path:
         str(music_path),
     ], stage="music_bed")
 
-    # ── Voice: system TTS → MP3 ──────────────────────────────────────────
-    voice_ok = _generate_tts(text, voice_path, work_dir)
+    # ── Voice: OpenAI TTS (preferred) → system TTS (fallback) ─────────────
+    voice_ok = _generate_tts(text, voice_path, work_dir, tts_voice=voice, tts_model=model)
 
     if voice_ok:
         # Mix voice (at full volume) over the music bed
@@ -177,11 +258,31 @@ def _build_intro(text: str, work_dir: Path) -> Path:
     return intro_path
 
 
-def _generate_tts(text: str, out_mp3: Path, work_dir: Path) -> bool:
+def _generate_tts(
+    text: str,
+    out_mp3: Path,
+    work_dir: Path,
+    tts_voice: str = "onyx",
+    tts_model: str = "tts-1-hd",
+) -> bool:
     """
-    Attempt TTS using platform-native engine or espeak.
+    Attempt TTS generation.  Order:
+    1. OpenAI TTS API (requires OPENAI_API_KEY in settings)
+    2. Platform-native TTS (macOS 'say' or Linux espeak-ng)
+
     Returns True if voice MP3 was generated successfully.
     """
+    # Try OpenAI TTS first
+    try:
+        from .tts import _openai_tts  # noqa: PLC0415
+        tts_path, _ = _openai_tts(text, tts_voice, tts_model, speed=1.0)
+        import shutil as _shutil  # noqa: PLC0415
+        _shutil.move(str(tts_path), str(out_mp3))
+        logger.info("OpenAI TTS voice generated: %s", out_mp3)
+        return True
+    except Exception as exc:
+        logger.warning("OpenAI TTS unavailable (%s), trying system TTS", exc)
+
     safe_text = text.replace('"', "'")
 
     if platform.system() == "Darwin":

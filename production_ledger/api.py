@@ -1457,3 +1457,89 @@ class MediaAssetConfirmUploadAPI(APIView):
         return Response({'id': str(asset.id), 'public_url': public_url},
                         status=status.HTTP_201_CREATED)
 
+
+# ---------------------------------------------------------------------------
+# Intro TTS Preview
+# ---------------------------------------------------------------------------
+
+class IntroPreviewAPI(APIView):
+    """
+    POST /api/episodes/<pk>/intro-preview/
+
+    Generate a TTS preview of the intro announcement using OpenAI TTS
+    (falls back to system TTS).  The generated audio is stored in a server
+    temp file whose path is saved in the session under the key
+    ``intro_preview_<episode_pk>``.
+
+    Returns:
+        {
+            "token":    "<uuid>",          # used by IntroPreviewServeView
+            "duration": 12.3,              # seconds
+            "voice":    "onyx",
+            "model":    "tts-1-hd",
+        }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .models import Episode  # noqa: PLC0415
+        from .services.tts import generate_intro, VOICES, MODELS  # noqa: PLC0415
+        import uuid as _uuid  # noqa: PLC0415
+        import tempfile as _tmp  # noqa: PLC0415
+        import shutil as _sh  # noqa: PLC0415
+        from pathlib import Path as _Path  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=pk)
+
+        # Permission: at minimum a viewer can preview (editor+ enforced by
+        # the template, but TTS is low-risk).
+        if episode.show.organization_id and not has_minimum_role(
+            request.user, episode.show.organization_id, 'viewer'
+        ):
+            raise PermissionDenied
+
+        text  = (request.data.get('text') or '').strip()
+        voice = request.data.get('voice', 'onyx')
+        model = request.data.get('model', 'tts-1-hd')
+
+        valid_voices = [v for v, _ in VOICES]
+        if voice not in valid_voices:
+            voice = 'onyx'
+        valid_models = [m for m, _ in MODELS]
+        if model not in valid_models:
+            model = 'tts-1-hd'
+
+        if not text:
+            from .services.audio_extraction import _default_intro_text  # noqa: PLC0415
+            text = _default_intro_text(
+                episode_title=episode.title or 'Untitled Episode',
+                show_name=episode.show.name or 'Podcast',
+            )
+
+        try:
+            tts_path, duration = generate_intro(text=text, voice=voice, model=model)
+        except Exception as exc:
+            return Response(
+                {'detail': f'TTS generation failed: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Store the file in a stable session-scoped temp location
+        token = str(_uuid.uuid4())
+        serve_dir = _Path(_tmp.gettempdir()) / 'forge_tts_serve'
+        serve_dir.mkdir(exist_ok=True)
+        dest = serve_dir / f'{token}.mp3'
+        _sh.move(str(tts_path), str(dest))
+
+        # Save token → episode_pk mapping in session so serve view can validate
+        session_key = f'intro_preview_{pk}'
+        request.session[session_key] = token
+        request.session.modified = True
+
+        return Response({
+            'token':    token,
+            'duration': round(duration, 1),
+            'voice':    voice,
+            'model':    model,
+        }, status=status.HTTP_200_OK)
+

@@ -81,4 +81,7 @@ urlpatterns = [
     path('shorts/<uuid:pk>/', api.VideoShortDetailAPI.as_view(), name='api_short_detail'),
     path('shorts/<uuid:pk>/render/', api.RenderShortAPI.as_view(), name='api_short_render'),
     path('episodes/<uuid:episode_id>/shorts/render-all/', api.RenderAllShortsAPI.as_view(), name='api_shorts_render_all'),
+
+    # TTS Intro Preview
+    path('episodes/<uuid:pk>/intro-preview/', api.IntroPreviewAPI.as_view(), name='api_intro_preview'),
 ]
