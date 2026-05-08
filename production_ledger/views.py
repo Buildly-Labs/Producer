@@ -379,6 +379,7 @@ class ShowUpdateView(LoginRequiredMixin, OrganizationMixin, RoleMixin, AuditMixi
             response = self.form_valid(form)
             feed_instance = feed_form.save(commit=False)
             feed_instance.show = self.object
+            feed_instance.organization_uuid = self.object.organization_uuid
 
             # Auto-derive the feed public URL so users never have to supply it
             from .services import storage as _storage  # noqa: PLC0415
