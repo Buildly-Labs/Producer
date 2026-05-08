@@ -1491,11 +1491,8 @@ class IntroPreviewAPI(APIView):
 
         episode = get_object_or_404(Episode, pk=pk)
 
-        # Permission: at minimum a viewer can preview (editor+ enforced by
-        # the template, but TTS is low-risk).
-        if episode.show.organization_id and not has_minimum_role(
-            request.user, episode.show.organization_id, 'viewer'
-        ):
+        # Permission: at minimum a viewer can preview
+        if not has_minimum_role(request.user, episode.show, 'viewer'):
             raise PermissionDenied
 
         text  = (request.data.get('text') or '').strip()
