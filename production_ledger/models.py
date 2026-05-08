@@ -935,12 +935,28 @@ class PodcastFeedConfig(BaseModel):
     # Timestamps
     feed_last_built = models.DateTimeField(null=True, blank=True, help_text="When the feed was last re-built and uploaded")
 
+    # YouTube integration — OAuth 2.0 credentials (stored per-show)
+    youtube_client_id = models.CharField(max_length=255, blank=True, help_text="Google OAuth client ID")
+    youtube_client_secret = models.CharField(max_length=255, blank=True, help_text="Google OAuth client secret")
+    youtube_refresh_token = models.TextField(blank=True, help_text="Stored OAuth refresh token after connecting YouTube")
+    youtube_channel_id = models.CharField(max_length=100, blank=True, help_text="YouTube channel ID (auto-populated on connect)")
+    youtube_channel_name = models.CharField(max_length=255, blank=True, help_text="YouTube channel display name")
+    youtube_default_privacy = models.CharField(
+        max_length=20,
+        choices=[('public', 'Public'), ('unlisted', 'Unlisted'), ('private', 'Private')],
+        default='public',
+    )
+
     class Meta:
         verbose_name = "Podcast Feed Config"
         verbose_name_plural = "Podcast Feed Configs"
 
     def __str__(self):
         return f"Feed config for {self.show.name}"
+
+    @property
+    def youtube_connected(self):
+        return bool(self.youtube_refresh_token)
 
 
 # =============================================================================

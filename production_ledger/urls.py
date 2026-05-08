@@ -48,6 +48,9 @@ urlpatterns = [
     path('shows/<uuid:pk>/edit/', views.ShowUpdateView.as_view(), name='show_edit'),
     path('shows/<uuid:pk>/roles/', views.ShowRolesView.as_view(), name='show_roles'),
     path('shows/<slug:slug>/feed.xml', views.ShowPodcastFeedView.as_view(), name='show_podcast_feed'),
+    path('shows/<uuid:pk>/youtube/connect/', views.YoutubeOAuthStartView.as_view(), name='youtube_oauth_start'),
+    path('shows/<uuid:pk>/youtube/callback/', views.YoutubeOAuthCallbackView.as_view(), name='youtube_oauth_callback'),
+    path('shows/<uuid:pk>/youtube/disconnect/', views.YoutubeDisconnectView.as_view(), name='youtube_disconnect'),
     
     # Episodes
     path('episodes/create/', views.EpisodeCreateSelectShowView.as_view(), name='episode_create'),

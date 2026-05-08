@@ -85,7 +85,79 @@
                 {% endif %}
             </fieldset>
             {% endif %}
-            
+
+            <!-- ── YouTube Integration ───────────────────────────────────── -->
+            {% if form.instance.pk and feed_form %}
+            <fieldset class="space-y-5">
+                <legend class="text-base font-semibold text-[var(--text-primary)] border-b border-[var(--border-default)] pb-2 w-full flex items-center gap-2">
+                    <svg class="w-5 h-5 text-red-600" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                    YouTube Integration
+                </legend>
+
+                {% if existing_feed_config and existing_feed_config.youtube_connected %}
+                <!-- Connected state -->
+                <div class="flex items-center justify-between rounded-lg bg-green-50 border border-green-200 px-4 py-3">
+                    <div>
+                        <p class="text-sm font-medium text-green-800">
+                            Connected to YouTube
+                            {% if existing_feed_config.youtube_channel_name %}: <strong>{{ existing_feed_config.youtube_channel_name }}</strong>{% endif %}
+                        </p>
+                        {% if existing_feed_config.youtube_channel_id %}
+                        <p class="text-xs text-green-600 mt-0.5">Channel ID: {{ existing_feed_config.youtube_channel_id }}</p>
+                        {% endif %}
+                    </div>
+                    <form method="post" action="{% url 'production_ledger:youtube_disconnect' form.instance.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-xs text-red-600 hover:text-red-800 font-medium">Disconnect</button>
+                    </form>
+                </div>
+                {% else %}
+                <!-- Not connected -->
+                <div class="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-600 space-y-3">
+                    <p>Connect your YouTube channel to enable automated video podcast uploads directly from the Publish tab.</p>
+                    <ol class="list-decimal list-inside space-y-1 text-gray-500 text-xs">
+                        <li>Create a Google Cloud project and enable the <strong>YouTube Data API v3</strong></li>
+                        <li>Create <strong>OAuth 2.0 Web Application</strong> credentials</li>
+                        <li>Add this callback URL as an authorised redirect URI:<br>
+                            <code class="text-xs bg-gray-100 px-1 py-0.5 rounded break-all">{{ request.scheme }}://{{ request.get_host }}{% url 'production_ledger:youtube_oauth_callback' form.instance.pk %}</code>
+                        </li>
+                        <li>Enter the Client ID &amp; Secret below, save, then click <strong>Connect YouTube</strong></li>
+                    </ol>
+                </div>
+                {% endif %}
+
+                <!-- OAuth credentials -->
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ feed_form.youtube_client_id.label }}</label>
+                        {{ feed_form.youtube_client_id }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ feed_form.youtube_client_secret.label }}</label>
+                        {{ feed_form.youtube_client_secret }}
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ feed_form.youtube_default_privacy.label }}</label>
+                        {{ feed_form.youtube_default_privacy }}
+                        <p class="mt-1 text-xs text-gray-400">Default privacy level for newly uploaded videos.</p>
+                    </div>
+                </div>
+
+                {% if not existing_feed_config or not existing_feed_config.youtube_connected %}
+                <div>
+                    <a href="{% url 'production_ledger:youtube_oauth_start' form.instance.pk %}"
+                       class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                        Connect YouTube
+                    </a>
+                    <p class="mt-1 text-xs text-gray-400">Save your credentials first, then click Connect to authorise access.</p>
+                </div>
+                {% endif %}
+            </fieldset>
+            {% endif %}
+
             <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200">
                 <a href="{% if form.instance.pk %}{% url 'production_ledger:show_detail' form.instance.pk %}{% else %}{% url 'production_ledger:show_list' %}{% endif %}" 
                    class="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">

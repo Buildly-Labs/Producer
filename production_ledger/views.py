@@ -390,6 +390,119 @@ class ShowPodcastFeedView(View):
         return HttpResponse(feed_xml, content_type='application/rss+xml; charset=utf-8')
 
 
+# =============================================================================
+# YOUTUBE OAUTH VIEWS
+# =============================================================================
+
+class YoutubeOAuthStartView(LoginRequiredMixin, OrganizationMixin, View):
+    """
+    Start the YouTube OAuth 2.0 authorisation flow for a Show.
+    Requires ADMIN role.  Stores the OAuth state in the session and redirects
+    the user to Google's consent screen.
+    """
+
+    def get(self, request, pk):
+        from .models import PodcastFeedConfig, Show  # noqa: PLC0415
+        from .services.youtube import build_oauth_flow  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=pk, organization_uuid=self.get_organization_uuid())
+        if not has_minimum_role(request.user, show, Role.ADMIN):
+            raise PermissionDenied("Admin role required to connect YouTube.")
+        try:
+            config, _ = PodcastFeedConfig.objects.get_or_create(
+                show=show,
+                defaults={'organization_uuid': show.organization_uuid},
+            )
+            redirect_uri = request.build_absolute_uri(
+                reverse('production_ledger:youtube_oauth_callback', kwargs={'pk': pk})
+            )
+            flow = build_oauth_flow(config, redirect_uri)
+            auth_url, state = flow.authorization_url(
+                access_type='offline',
+                include_granted_scopes='true',
+                prompt='consent',
+            )
+            request.session['yt_oauth_state'] = state
+            request.session['yt_oauth_show_pk'] = str(pk)
+            return redirect(auth_url)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect('production_ledger:show_edit', pk=pk)
+
+
+class YoutubeOAuthCallbackView(LoginRequiredMixin, OrganizationMixin, View):
+    """
+    Handle the OAuth 2.0 callback from Google, exchange the code for tokens,
+    store the refresh_token in PodcastFeedConfig, and redirect back to Show edit.
+    """
+
+    def get(self, request, pk):
+        from .models import PodcastFeedConfig, Show  # noqa: PLC0415
+        from .services.youtube import build_oauth_flow, fetch_channel_info  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=pk, organization_uuid=self.get_organization_uuid())
+
+        error = request.GET.get('error')
+        if error:
+            messages.error(request, f'YouTube authorisation denied: {error}')
+            return redirect('production_ledger:show_edit', pk=pk)
+
+        state = request.session.get('yt_oauth_state', '')
+        try:
+            config = PodcastFeedConfig.objects.get(show=show)
+            redirect_uri = request.build_absolute_uri(
+                reverse('production_ledger:youtube_oauth_callback', kwargs={'pk': pk})
+            )
+            flow = build_oauth_flow(config, redirect_uri)
+            flow.fetch_token(
+                authorization_response=request.build_absolute_uri(),
+                state=state,
+            )
+            creds = flow.credentials
+            config.youtube_refresh_token = creds.refresh_token or config.youtube_refresh_token
+            config.save(update_fields=['youtube_refresh_token'])
+
+            # Fetch channel info
+            try:
+                channel_id, channel_name = fetch_channel_info(config)
+                config.youtube_channel_id = channel_id
+                config.youtube_channel_name = channel_name
+                config.save(update_fields=['youtube_channel_id', 'youtube_channel_name'])
+            except Exception as exc:
+                logger.warning("Could not fetch YouTube channel info: %s", exc)
+
+            messages.success(
+                request,
+                f'YouTube connected successfully! Channel: {config.youtube_channel_name or config.youtube_channel_id}',
+            )
+        except Exception as exc:
+            logger.exception("YouTube OAuth callback error")
+            messages.error(request, f'YouTube connection failed: {exc}')
+
+        return redirect('production_ledger:show_edit', pk=pk)
+
+
+class YoutubeDisconnectView(LoginRequiredMixin, OrganizationMixin, View):
+    """Clear stored YouTube OAuth credentials for a Show (POST only)."""
+
+    def post(self, request, pk):
+        from .models import PodcastFeedConfig, Show  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=pk, organization_uuid=self.get_organization_uuid())
+        if not has_minimum_role(request.user, show, Role.ADMIN):
+            raise PermissionDenied("Admin role required.")
+        try:
+            config = PodcastFeedConfig.objects.get(show=show)
+            config.youtube_refresh_token = ''
+            config.youtube_channel_id = ''
+            config.youtube_channel_name = ''
+            config.save(update_fields=['youtube_refresh_token', 'youtube_channel_id', 'youtube_channel_name'])
+            messages.success(request, 'YouTube disconnected.')
+        except PodcastFeedConfig.DoesNotExist:
+            pass
+        return redirect('production_ledger:show_edit', pk=pk)
+
+
 class ShowUpdateView(LoginRequiredMixin, OrganizationMixin, RoleMixin, AuditMixin, UpdateView):
     """Update a show, including its podcast feed configuration."""
 
@@ -961,6 +1074,57 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                 return redirect('production_ledger:episode_publish', pk=episode.pk)
 
             messages.success(request, 'Video uploaded and published as a media asset.')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        if action == 'publish_to_youtube':
+            from .services.youtube import upload_episode_to_youtube  # noqa: PLC0415
+            from .models import PodcastDistribution  # noqa: PLC0415
+            from .constants import PodcastPlatform, DistributionStatus  # noqa: PLC0415
+
+            asset_id = request.POST.get('video_asset_id')
+            if not asset_id:
+                messages.error(request, 'Select a video asset to upload to YouTube.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            try:
+                video_asset = episode.media_assets.get(pk=asset_id, asset_type=AssetType.VIDEO)
+            except Exception:
+                messages.error(request, 'Video asset not found on this episode.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            if not video_asset.external_url:
+                messages.error(request, 'Video asset has no public URL. Upload the video to storage first.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            try:
+                feed_config = episode.show.podcast_feed_config
+            except Exception:
+                messages.error(request, 'Configure the Podcast RSS Feed settings for this show before uploading to YouTube.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            privacy = request.POST.get('youtube_privacy') or feed_config.youtube_default_privacy or 'public'
+
+            try:
+                video_id = upload_episode_to_youtube(episode, video_asset.external_url, feed_config, privacy=privacy)
+            except ValueError as exc:
+                messages.error(request, str(exc))
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+            except Exception as exc:
+                logger.exception("YouTube upload failed for episode %s", episode.pk)
+                messages.error(request, f'YouTube upload failed: {exc}')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            youtube_url = f'https://www.youtube.com/watch?v={video_id}'
+            dist, _ = PodcastDistribution.objects.get_or_create(
+                episode=episode,
+                platform=PodcastPlatform.YOUTUBE,
+                defaults={'organization_uuid': episode.organization_uuid},
+            )
+            dist.status = DistributionStatus.LIVE
+            dist.platform_url = youtube_url
+            dist.save(update_fields=['status', 'platform_url'])
+
+            messages.success(request, f'Video uploaded to YouTube: {youtube_url}')
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
         audio_file = request.FILES.get('audio')

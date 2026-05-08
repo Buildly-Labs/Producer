@@ -105,9 +105,12 @@ class PodcastFeedConfigForm(TailwindFormMixin, forms.ModelForm):
             'author_name', 'author_email',
             'category', 'subcategory',
             'explicit', 'website_url',
+            # YouTube integration
+            'youtube_client_id', 'youtube_client_secret', 'youtube_default_privacy',
         ]
         widgets = {
             'feed_description': forms.Textarea(attrs={'rows': 3}),
+            'youtube_client_secret': forms.PasswordInput(render_value=True),
         }
 
 
