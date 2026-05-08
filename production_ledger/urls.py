@@ -47,6 +47,7 @@ urlpatterns = [
     path('shows/<uuid:pk>/', views.ShowDetailView.as_view(), name='show_detail'),
     path('shows/<uuid:pk>/edit/', views.ShowUpdateView.as_view(), name='show_edit'),
     path('shows/<uuid:pk>/roles/', views.ShowRolesView.as_view(), name='show_roles'),
+    path('shows/<slug:slug>/feed.xml', views.ShowPodcastFeedView.as_view(), name='show_podcast_feed'),
     
     # Episodes
     path('episodes/create/', views.EpisodeCreateSelectShowView.as_view(), name='episode_create'),

@@ -347,6 +347,49 @@ class ShowDetailView(LoginRequiredMixin, OrganizationMixin, RoleMixin, DetailVie
         return context
 
 
+class ShowPodcastFeedView(View):
+    """
+    Public RSS feed endpoint: GET /shows/<slug>/feed.xml
+    No login required — podcast apps hit this URL directly.
+    Builds the feed from the database on every request so it's always fresh.
+    """
+
+    def get(self, request, slug):
+        from .models import PodcastFeedConfig, Show  # noqa: PLC0415
+        from .services.distribution import _build_rss_feed, _get_feed_config  # noqa: PLC0415
+        from .constants import DistributionStatus  # noqa: PLC0415
+        from .models import PodcastDistribution  # noqa: PLC0415
+
+        show = get_object_or_404(Show, slug=slug)
+        config = _get_feed_config(show)
+
+        # Make sure feed_public_url points to this view (idempotent)
+        app_feed_url = request.build_absolute_uri(
+            reverse('production_ledger:show_podcast_feed', kwargs={'slug': slug})
+        )
+        if config.feed_public_url != app_feed_url:
+            config.feed_public_url = app_feed_url
+            config.save(update_fields=['feed_public_url'])
+
+        dists = (
+            PodcastDistribution.objects
+            .filter(
+                episode__show=show,
+                status__in=[DistributionStatus.SUBMITTED, DistributionStatus.LIVE],
+            )
+            .select_related('episode', 'episode__show_note_final')
+            .exclude(audio_public_url='')
+            .order_by('episode__publish_date')
+        )
+
+        try:
+            feed_xml = _build_rss_feed(show, config, dists)
+        except Exception as exc:
+            return HttpResponse(f'Feed generation error: {exc}', status=500, content_type='text/plain')
+
+        return HttpResponse(feed_xml, content_type='application/rss+xml; charset=utf-8')
+
+
 class ShowUpdateView(LoginRequiredMixin, OrganizationMixin, RoleMixin, AuditMixin, UpdateView):
     """Update a show, including its podcast feed configuration."""
 
@@ -381,18 +424,17 @@ class ShowUpdateView(LoginRequiredMixin, OrganizationMixin, RoleMixin, AuditMixi
             feed_instance.show = self.object
             feed_instance.organization_uuid = self.object.organization_uuid
 
-            # Auto-derive the feed public URL so users never have to supply it
-            from .services import storage as _storage  # noqa: PLC0415
-            feed_key = _storage.podcast_feed_key(
-                str(self.object.organization_uuid), self.object.slug
+            # Set feed_public_url to the app-served endpoint (always valid,
+            # even before the feed XML has been uploaded to Spaces)
+            app_feed_url = request.build_absolute_uri(
+                reverse('production_ledger:show_podcast_feed', kwargs={'slug': self.object.slug})
             )
-            if not feed_instance.feed_public_url:
-                feed_instance.feed_public_url = _storage._public_url(feed_key)
-                feed_instance.feed_spaces_key = feed_key
+            feed_instance.feed_public_url = app_feed_url
 
             # Upload cover art to DO Spaces if a file was provided
             cover_art_file = request.FILES.get('cover_art')
             if cover_art_file:
+                from .services import storage as _storage  # noqa: PLC0415
                 allowed = {'image/jpeg', 'image/png', 'image/jpg'}
                 ct = cover_art_file.content_type or ''
                 if ct not in allowed:
