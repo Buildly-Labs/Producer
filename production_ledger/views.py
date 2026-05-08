@@ -390,7 +390,10 @@ class ShowPodcastFeedView(View):
         except Exception as exc:
             return HttpResponse(f'Feed generation error: {exc}', status=500, content_type='text/plain')
 
-        return HttpResponse(feed_xml, content_type='application/rss+xml; charset=utf-8')
+        response = HttpResponse(feed_xml, content_type='application/rss+xml; charset=utf-8')
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+        return response
 
 
 # =============================================================================

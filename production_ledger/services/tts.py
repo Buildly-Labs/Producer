@@ -1,13 +1,13 @@
 """
 Text-to-Speech service for intro announcement generation.
 
-Primary engine: OpenAI TTS API (tts-1 / tts-1-hd).
-Fallback:       System TTS (macOS 'say', Linux espeak-ng).
+Primary engine: OpenAI TTS API.
+  - Best quality:  gpt-4o-mini-tts  (recommended — supports tone/style prompting)
+  - Legacy:        tts-1-hd / tts-1  (still available but noticeably more robotic)
 
-VibeVoice-TTS was considered but its code was removed from the GitHub repo
-in Sept 2025 due to misuse concerns. VibeVoice-Realtime-0.5B requires local
-GPU inference and is not practical for a Django application server.
-OpenAI TTS provides comparable quality with no local model overhead.
+Fallback: System TTS (macOS 'say', Linux espeak-ng).
+
+Voice demos: https://openai.fm/
 
 Usage::
 
@@ -15,8 +15,9 @@ Usage::
 
     path, duration = generate_intro(
         text="Welcome to The Forge Podcast. This episode: Building in Public.",
-        voice="onyx",           # or alloy, echo, fable, nova, shimmer
-        model="tts-1-hd",      # or "tts-1" (faster, slightly lower quality)
+        voice="coral",
+        model="gpt-4o-mini-tts",
+        instructions="Warm, enthusiastic podcast host energy.",
     )
     # path is a pathlib.Path to a temp .mp3 — caller deletes it when done
 """
@@ -30,23 +31,49 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# OpenAI voice options for the UI
+# ---------------------------------------------------------------------------
+# Voice catalogue
+# ---------------------------------------------------------------------------
+# gpt-4o-mini-tts supports all 13 voices. tts-1 / tts-1-hd support only the
+# first 9 (alloy → shimmer). The UI shows the full set; the API call validates.
+
 VOICES = [
-    ("alloy",   "Alloy — neutral, balanced"),
-    ("echo",    "Echo — clear, professional"),
-    ("fable",   "Fable — warm, storytelling"),
-    ("onyx",    "Onyx — deep, authoritative"),
+    # Recommended for podcasts ↓
+    ("coral",   "Coral — warm, conversational  ★ recommended"),
+    ("marin",   "Marin — clear, expressive     ★ recommended"),
+    ("cedar",   "Cedar — rich, broadcast-ready ★ recommended"),
+    ("ash",     "Ash — smooth, authoritative"),
+    ("sage",    "Sage — calm, measured"),
+    ("verse",   "Verse — dynamic, versatile"),
+    ("ballad",  "Ballad — emotive, storytelling"),
+    # Classic set (also available on tts-1-hd) ↓
+    ("onyx",    "Onyx — deep, professional"),
     ("nova",    "Nova — bright, energetic"),
-    ("shimmer", "Shimmer — soft, conversational"),
+    ("alloy",   "Alloy — neutral, balanced"),
+    ("echo",    "Echo — clear, precise"),
+    ("fable",   "Fable — warm, narrative"),
+    ("shimmer", "Shimmer — soft, approachable"),
 ]
 
 MODELS = [
-    ("tts-1",    "Standard — faster"),
-    ("tts-1-hd", "High Definition — richer audio"),
+    ("gpt-4o-mini-tts", "GPT-4o Mini TTS — most natural, supports tone control ★"),
+    ("tts-1-hd",        "TTS-1 HD — legacy high definition"),
+    ("tts-1",           "TTS-1 — legacy standard (faster, lower quality)"),
 ]
 
-DEFAULT_VOICE = "onyx"
-DEFAULT_MODEL = "tts-1-hd"
+DEFAULT_VOICE = "coral"
+DEFAULT_MODEL = "gpt-4o-mini-tts"
+
+# Default tone instructions sent to gpt-4o-mini-tts.
+# The model ignores this for tts-1/tts-1-hd (they don't support instructions).
+DEFAULT_INSTRUCTIONS = (
+    "You are a professional podcast host. Speak with warmth and enthusiasm, "
+    "as if welcoming listeners to an exciting new episode. Keep energy high "
+    "but conversational — not over-the-top, just genuinely engaging."
+)
+
+# Voices that work with legacy models (tts-1 / tts-1-hd)
+LEGACY_VOICES = {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"}
 
 
 def generate_intro(
@@ -54,9 +81,14 @@ def generate_intro(
     voice: str = DEFAULT_VOICE,
     model: str = DEFAULT_MODEL,
     speed: float = 1.0,
+    instructions: str | None = None,
 ) -> tuple[Path, float]:
     """
     Generate a TTS MP3 from *text*.
+
+    ``instructions`` controls speaking style and is forwarded to
+    ``gpt-4o-mini-tts`` only (older models ignore it).
+    Pass ``None`` to use DEFAULT_INSTRUCTIONS.
 
     Returns:
         (path, duration_seconds) — caller is responsible for deleting path.
@@ -69,7 +101,7 @@ def generate_intro(
 
     # Try OpenAI first
     try:
-        return _openai_tts(text, voice, model, speed)
+        return _openai_tts(text, voice, model, speed, instructions=instructions)
     except Exception as exc:
         logger.warning("OpenAI TTS failed (%s), falling back to system TTS", exc)
 
@@ -83,7 +115,13 @@ def generate_intro(
         ) from exc
 
 
-def _openai_tts(text: str, voice: str, model: str, speed: float) -> tuple[Path, float]:
+def _openai_tts(
+    text: str,
+    voice: str,
+    model: str,
+    speed: float,
+    instructions: str | None = None,
+) -> tuple[Path, float]:
     from openai import OpenAI  # noqa: PLC0415
     from django.conf import settings  # noqa: PLC0415
 
@@ -93,27 +131,38 @@ def _openai_tts(text: str, voice: str, model: str, speed: float) -> tuple[Path, 
 
     client = OpenAI(api_key=api_key)
 
-    # Validate voice
+    # Validate voice — fall back for legacy models that don't know newer voices
     valid_voices = [v for v, _ in VOICES]
     if voice not in valid_voices:
         voice = DEFAULT_VOICE
+    if model in ("tts-1", "tts-1-hd") and voice not in LEGACY_VOICES:
+        logger.info("Voice %s not supported by %s; switching to coral", voice, model)
+        voice = "coral"
 
     # Clamp speed to OpenAI's supported range
     speed = max(0.25, min(4.0, float(speed)))
 
     tmp_path = Path(tempfile.mktemp(prefix="forge_tts_", suffix=".mp3"))
 
-    response = client.audio.speech.create(
+    # gpt-4o-mini-tts supports an instructions field for tone / style control
+    kwargs: dict = dict(
         model=model,
         voice=voice,  # type: ignore[arg-type]
         input=text,
         response_format="mp3",
         speed=speed,
     )
+    if model == "gpt-4o-mini-tts":
+        kwargs["instructions"] = instructions if instructions is not None else DEFAULT_INSTRUCTIONS
+
+    response = client.audio.speech.create(**kwargs)
     response.stream_to_file(str(tmp_path))
 
     duration = _probe_duration(tmp_path)
-    logger.info("OpenAI TTS generated: %s (%.1fs, voice=%s, model=%s)", tmp_path, duration, voice, model)
+    logger.info(
+        "OpenAI TTS generated: %s (%.1fs, voice=%s, model=%s)",
+        tmp_path, duration, voice, model,
+    )
     return tmp_path, duration
 
 
