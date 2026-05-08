@@ -336,6 +336,32 @@ class MediaAssetDetailAPI(OrganizationScopedMixin, generics.RetrieveUpdateDestro
     permission_classes = [IsAuthenticated]
 
 
+class MediaAssetStatusAPI(APIView):
+    """
+    GET /api/media/<pk>/status/
+
+    Lightweight polling endpoint for background jobs (e.g. audio extraction).
+    Returns the current ingestion_status and error_message of a MediaAsset.
+    Used by the publish page to show live progress without a full page reload.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        from .models import MediaAsset  # noqa: PLC0415
+        asset = get_object_or_404(MediaAsset, pk=pk)
+        # Scope check — user must belong to the same org
+        org_uuid = get_user_organization_uuid(request.user)
+        if org_uuid and str(asset.organization_uuid) != str(org_uuid):
+            raise PermissionDenied
+        return Response({
+            'status': asset.ingestion_status,
+            'label': asset.label,
+            'error': asset.error_message or None,
+            'duration_seconds': asset.duration_seconds,
+            'external_url': asset.external_url,
+        })
+
+
 # =============================================================================
 # TRANSCRIPTS
 # =============================================================================

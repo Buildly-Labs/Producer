@@ -32,6 +32,7 @@ urlpatterns = [
     path('episodes/<uuid:episode_id>/media/presign/', api.MediaPresignUploadAPI.as_view(), name='api_media_presign'),
     path('episodes/<uuid:episode_id>/media/confirm/', api.MediaAssetConfirmUploadAPI.as_view(), name='api_media_confirm'),
     path('media/<uuid:pk>/', api.MediaAssetDetailAPI.as_view(), name='api_media_detail'),
+    path('media/<uuid:pk>/status/', api.MediaAssetStatusAPI.as_view(), name='api_media_status'),
     
     # Transcripts
     path('episodes/<uuid:episode_id>/transcripts/', api.TranscriptListCreateAPI.as_view(), name='api_transcript_list'),

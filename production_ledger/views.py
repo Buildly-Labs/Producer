@@ -929,6 +929,13 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
             asset_type=AssetType.VIDEO,
         ).order_by('-created_at')
 
+        # Assets currently being processed in background — page will auto-refresh
+        context['processing_assets'] = list(
+            episode.media_assets.filter(
+                ingestion_status__in=[IngestionStatus.PENDING, IngestionStatus.PROCESSING],
+            ).values('pk', 'label', 'ingestion_status')
+        )
+
         try:
             context['podcast_feed_config'] = episode.show.podcast_feed_config
         except Exception:
@@ -1183,6 +1190,8 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
         if action == 'extract_audio_from_video':
             from .services.audio_extraction import cleanup_work_dir, extract_audio_from_video  # noqa: PLC0415
             from .services.distribution import publish_episode_audio, build_and_publish_feed  # noqa: PLC0415
+            import threading  # noqa: PLC0415
+            import django  # noqa: PLC0415
 
             asset_id = request.POST.get('video_asset_id')
             if not asset_id:
@@ -1221,59 +1230,114 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
             intro_model = request.POST.get('intro_model') or 'gpt-4o-mini-tts'
             insert_at_seconds = float(request.POST.get('intro_offset_seconds', '0') or '0')
 
-            audio_path = None
-            try:
+            # Create a PENDING audio asset immediately so we can track progress.
+            # The actual extraction runs in a background thread — this lets us
+            # return a redirect in <1 second, avoiding DigitalOcean's 60s LB timeout.
+            intro_label = " + intro" if add_intro else ""
+            pending_asset = MediaAsset.objects.create(
+                episode=episode,
+                organization_uuid=episode.organization_uuid,
+                asset_type=AssetType.AUDIO,
+                source_type=SourceType.API_IMPORT,
+                label=f"Extracting audio{intro_label} from {video_asset.label or 'video'}…",
+                ingestion_status=IngestionStatus.PENDING,
+                ingested_by=request.user,
+            )
+
+            # Capture everything the thread needs — no request/response objects
+            _thread_kwargs = dict(
+                asset_pk=str(pending_asset.pk),
+                episode_pk=str(episode.pk),
+                video_url=video_asset.external_url,
+                episode_title=episode.title,
+                show_name=episode.show.name,
+                add_intro=add_intro,
+                intro_text=intro_text,
+                intro_audio_path=intro_audio_path,
+                insert_at_seconds=insert_at_seconds,
+                intro_voice=intro_voice,
+                intro_model=intro_model,
+                bitrate=bitrate,
+                user_pk=request.user.pk,
+            )
+
+            def _run_extraction(
+                asset_pk, episode_pk, video_url, episode_title, show_name,
+                add_intro, intro_text, intro_audio_path, insert_at_seconds,
+                intro_voice, intro_model, bitrate, user_pk,
+            ):
+                import django.db  # noqa: PLC0415
+                from django.contrib.auth import get_user_model  # noqa: PLC0415
+                from .models import MediaAsset as _MA, Episode as _Ep  # noqa: PLC0415
+                from .constants import IngestionStatus as _IS  # noqa: PLC0415
+                from .services.audio_extraction import cleanup_work_dir as _cleanup, extract_audio_from_video as _extract  # noqa: PLC0415
+                from .services.distribution import publish_episode_audio as _pub, build_and_publish_feed as _feed  # noqa: PLC0415
+
+                audio_path = None
                 try:
-                    feed_config = episode.show.podcast_feed_config
-                    show_name = feed_config.feed_title or episode.show.name
-                except Exception:
-                    show_name = episode.show.name
+                    asset = _MA.objects.get(pk=asset_pk)
+                    asset.ingestion_status = _IS.PROCESSING
+                    asset.save(update_fields=['ingestion_status'])
 
-                audio_path, duration = extract_audio_from_video(
-                    video_url=video_asset.external_url,
-                    episode_title=episode.title,
-                    show_name=show_name,
-                    add_intro=add_intro,
-                    intro_text=intro_text,
-                    intro_audio_path=intro_audio_path,
-                    insert_at_seconds=insert_at_seconds,
-                    intro_voice=intro_voice,
-                    intro_model=intro_model,
-                    bitrate=bitrate,
-                )
-
-                # Publish the extracted audio through the normal distribution flow
-                with open(audio_path, 'rb') as audio_file:
-                    result = publish_episode_audio(
-                        episode,
-                        audio_file,
-                        f"{episode.title}.mp3".replace('/', '-'),
-                        duration_seconds=duration,
-                        user=request.user,
+                    audio_path, duration = _extract(
+                        video_url=video_url,
+                        episode_title=episode_title,
+                        show_name=show_name,
+                        add_intro=add_intro,
+                        intro_text=intro_text,
+                        intro_audio_path=intro_audio_path,
+                        insert_at_seconds=insert_at_seconds,
+                        intro_voice=intro_voice,
+                        intro_model=intro_model,
+                        bitrate=bitrate,
                     )
 
-                # Rebuild RSS feed
-                try:
-                    build_and_publish_feed(episode.show, user=request.user)
+                    ep = _Ep.objects.get(pk=episode_pk)
+                    User = get_user_model()
+                    user = User.objects.get(pk=user_pk)
+
+                    with open(audio_path, 'rb') as af:
+                        result = _pub(ep, af, f"{episode_title}.mp3".replace('/', '-'),
+                                      duration_seconds=duration, user=user)
+
+                    # Update the pending asset with the real URL/duration from publish result
+                    dist_list = result.get('distributions', [])
+                    public_url = dist_list[0].audio_public_url if dist_list else None
+                    _intro = " (with intro)" if add_intro else ""
+                    asset.ingestion_status = _IS.READY
+                    asset.duration_seconds = int(duration)
+                    asset.label = f"Extracted audio{_intro} ({int(duration)}s)"
+                    if public_url:
+                        asset.external_url = public_url
+                    asset.save(update_fields=['ingestion_status', 'duration_seconds', 'label', 'external_url'])
+
+                    try:
+                        _feed(ep.show, user=user)
+                    except Exception as feed_exc:
+                        logger.warning("Feed rebuild failed after audio extraction: %s", feed_exc)
+
                 except Exception as exc:
-                    messages.warning(request, f'Audio published, but feed rebuild failed: {exc}')
+                    logger.exception("Background audio extraction failed for asset %s", asset_pk)
+                    try:
+                        asset = _MA.objects.get(pk=asset_pk)
+                        asset.ingestion_status = _IS.FAILED
+                        asset.error_message = str(exc)
+                        asset.save(update_fields=['ingestion_status', 'error_message'])
+                    except Exception:
+                        pass
+                finally:
+                    if audio_path:
+                        _cleanup(audio_path)
+                    django.db.connections.close_all()
 
-                intro_label = " (with intro)" if add_intro else ""
-                messages.success(
-                    request,
-                    f'Audio extracted{intro_label} and published to {len(result["distributions"])} platform(s). '
-                    f'Duration: {duration}s. RSS feed updated.',
-                )
+            t = threading.Thread(target=_run_extraction, kwargs=_thread_kwargs, daemon=True)
+            t.start()
 
-            except RuntimeError as exc:
-                messages.error(request, str(exc))
-            except Exception as exc:
-                logger.exception("Audio extraction failed for episode %s", episode.pk)
-                messages.error(request, f'Audio extraction failed: {exc}')
-            finally:
-                if audio_path:
-                    cleanup_work_dir(audio_path)
-
+            messages.info(
+                request,
+                f'Audio extraction started. The page will update automatically when it\'s ready '
+                f'(usually 2–5 minutes depending on video length).',
+            )
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
         audio_file = request.FILES.get('audio')

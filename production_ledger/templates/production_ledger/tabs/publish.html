@@ -3,6 +3,56 @@
 {% block tab_content %}
 <div class="space-y-8">
 
+    {% if processing_assets %}
+    <!-- ═══════════════════════════════════════════
+         PROCESSING BANNER
+    ═══════════════════════════════════════════ -->
+    <div id="processing-banner" class="flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-xl text-sm">
+        <svg class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <div class="flex-1">
+            <p class="font-semibold text-amber-800">Audio extraction in progress</p>
+            {% for a in processing_assets %}
+            <p class="text-amber-700 mt-0.5" id="job-label-{{ a.pk }}">{{ a.label }}</p>
+            {% endfor %}
+            <p class="text-amber-600 text-xs mt-1">This page will refresh automatically when done.</p>
+        </div>
+    </div>
+    <script>
+    (function() {
+        const PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+        const STATUS_URL_TPL = "{% url 'production_ledger:api_media_status' pk='00000000-0000-0000-0000-000000000000' %}";
+        const jobs = [{% for a in processing_assets %}{"pk":"{{ a.pk }}","status":"{{ a.ingestion_status }}"}{% if not forloop.last %},{% endif %}{% endfor %}];
+
+        async function checkJob(job) {
+            try {
+                const url = STATUS_URL_TPL.replace(PLACEHOLDER, job.pk);
+                const r = await fetch(url, {credentials: 'same-origin'});
+                if (!r.ok) return job.status;
+                const d = await r.json();
+                const label = document.getElementById('job-label-' + job.pk);
+                if (label && d.label) label.textContent = d.label + (d.status === 'processing' ? ' — processing…' : '');
+                job.status = d.status;
+                return d.status;
+            } catch(e) { return job.status; }
+        }
+
+        async function poll() {
+            await Promise.all(jobs.map(checkJob));
+            const stillRunning = jobs.some(j => j.status === 'pending' || j.status === 'processing');
+            if (!stillRunning) {
+                window.location.reload();
+            } else {
+                setTimeout(poll, 4000);
+            }
+        }
+        setTimeout(poll, 4000);
+    })();
+    </script>
+    {% endif %}
+
     <!-- ═══════════════════════════════════════════
          STATUS BAR
     ═══════════════════════════════════════════ -->
