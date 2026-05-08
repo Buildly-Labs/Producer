@@ -1483,7 +1483,7 @@ class IntroPreviewAPI(APIView):
 
     def post(self, request, pk):
         from .models import Episode  # noqa: PLC0415
-        from .services.tts import generate_intro, VOICES, MODELS, DEFAULT_VOICE, DEFAULT_MODEL  # noqa: PLC0415
+        from .services.tts import _openai_tts, VOICES, MODELS, DEFAULT_VOICE, DEFAULT_MODEL  # noqa: PLC0415
         import uuid as _uuid  # noqa: PLC0415
         import tempfile as _tmp  # noqa: PLC0415
         import shutil as _sh  # noqa: PLC0415
@@ -1514,10 +1514,13 @@ class IntroPreviewAPI(APIView):
             )
 
         try:
-            tts_path, duration = generate_intro(text=text, voice=voice, model=model)
+            # Call OpenAI TTS directly — no silent system-TTS fallback here
+            # so if OpenAI fails the user sees the actual error rather than
+            # always hearing the same macOS 'say' voice.
+            tts_path, duration = _openai_tts(text, voice, model, speed=1.0)
         except Exception as exc:
             return Response(
-                {'detail': f'TTS generation failed: {exc}'},
+                {'detail': f'OpenAI TTS failed: {exc}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

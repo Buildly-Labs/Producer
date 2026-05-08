@@ -1217,8 +1217,8 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                         if candidate.exists():
                             intro_audio_path = candidate
 
-            intro_voice = request.POST.get('intro_voice', 'onyx')
-            intro_model = request.POST.get('intro_model', 'tts-1-hd')
+            intro_voice = request.POST.get('intro_voice') or 'coral'
+            intro_model = request.POST.get('intro_model') or 'gpt-4o-mini-tts'
             insert_at_seconds = float(request.POST.get('intro_offset_seconds', '0') or '0')
 
             audio_path = None
