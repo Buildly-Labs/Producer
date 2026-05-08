@@ -392,24 +392,29 @@ class ShowUpdateView(LoginRequiredMixin, OrganizationMixin, RoleMixin, AuditMixi
             # Upload cover art to DO Spaces if a file was provided
             cover_art_file = request.FILES.get('cover_art')
             if cover_art_file:
-                import mimetypes  # noqa: PLC0415
-                ext = mimetypes.guess_extension(cover_art_file.content_type) or '.jpg'
-                ext = ext.lstrip('.')
-                art_key = _storage.cover_art_key(
-                    str(self.object.organization_uuid),
-                    self.object.slug,
-                    f"cover.{ext}",
-                )
-                try:
-                    art_url = _storage.upload_file(
-                        cover_art_file,
-                        art_key,
-                        content_type=cover_art_file.content_type,
-                        public=True,
+                allowed = {'image/jpeg', 'image/png', 'image/jpg'}
+                ct = cover_art_file.content_type or ''
+                if ct not in allowed:
+                    messages.warning(request, f'Cover art must be JPEG or PNG (got {ct}); other changes saved.')
+                else:
+                    import mimetypes  # noqa: PLC0415
+                    ext = mimetypes.guess_extension(ct) or '.jpg'
+                    ext = ext.lstrip('.')
+                    art_key = _storage.cover_art_key(
+                        str(self.object.organization_uuid),
+                        self.object.slug,
+                        f"cover.{ext}",
                     )
-                    feed_instance.cover_art_url = art_url
-                except Exception:
-                    pass  # Don't block save if Spaces is unavailable
+                    try:
+                        art_url = _storage.upload_file(
+                            cover_art_file,
+                            art_key,
+                            content_type=ct,
+                            public=True,
+                        )
+                        feed_instance.cover_art_url = art_url
+                    except Exception:
+                        pass  # Don't block save if Spaces is unavailable
 
             feed_instance.save()
             return response
