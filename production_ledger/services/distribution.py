@@ -97,10 +97,15 @@ def _build_rss_feed(show, config, published_distributions):
     if author_email:
         fg.podcast.itunes_owner(name=author_name, email=author_email)
 
+    seen_episode_ids: set = set()
     for dist in published_distributions:
         episode = dist.episode
         if not dist.audio_public_url:
             continue
+        # One RSS item per episode — skip duplicate platform rows
+        if episode.id in seen_episode_ids:
+            continue
+        seen_episode_ids.add(episode.id)
 
         fe = fg.add_entry()
         ep_guid = str(episode.id)
