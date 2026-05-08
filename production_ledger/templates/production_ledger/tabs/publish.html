@@ -337,7 +337,11 @@
                         <li>Complete verification — the platform will start syncing new episodes automatically</li>
                     </ol>
                     {% else %}
+                    {% if 'Discontinued' in row.label or 'discontinued' in row.label %}
+                    <p class="text-gray-400">This platform has been discontinued and is no longer accepting new podcasts.</p>
+                    {% else %}
                     <p class="text-gray-400">Manual submission required for this platform.</p>
+                    {% endif %}
                     {% endif %}
                     {% endif %}
                 </div>

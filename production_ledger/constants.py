@@ -387,10 +387,10 @@ class PodcastPlatform:
     CHOICES = [
         (APPLE, 'Apple Podcasts'),
         (SPOTIFY, 'Spotify'),
-        (AMAZON, 'Amazon Music / Audible'),
-        (GOOGLE, 'Google Podcasts'),
+        (AMAZON, 'Amazon Music'),
+        (GOOGLE, 'YouTube Music / Google Podcasts'),
         (IHEART, 'iHeartRadio'),
-        (STITCHER, 'Stitcher'),
+        (STITCHER, 'Stitcher (Discontinued)'),
         (POCKET_CASTS, 'Pocket Casts'),
         (OVERCAST, 'Overcast'),
         (CASTBOX, 'Castbox'),
@@ -403,11 +403,11 @@ class PodcastPlatform:
     # Submission / directory URLs for each platform
     SUBMISSION_URLS = {
         APPLE: 'https://podcastsconnect.apple.com/my-podcasts/new-feed',
-        SPOTIFY: 'https://podcasters.spotify.com/pod/submit',
+        SPOTIFY: 'https://creators.spotify.com',
         AMAZON: 'https://music.amazon.com/podcasts/submit',
         GOOGLE: 'https://podcastsmanager.google.com/',
-        IHEART: 'https://www.iheart.com/content/submit-your-podcast/',
-        STITCHER: 'https://partners.stitcher.com/join',
+        IHEART: 'https://podcasters.iheart.com/',
+        STITCHER: '',  # Stitcher shut down August 2023
         POCKET_CASTS: 'https://pocketcasts.com/submit/',
         OVERCAST: 'https://overcast.fm/podcasterinfo',
         CASTBOX: 'https://helpcenter.castbox.fm/hc/en-us/articles/360003534751',
