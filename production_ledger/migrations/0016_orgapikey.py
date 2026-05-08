@@ -2,6 +2,16 @@ import uuid
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
+from django.db.utils import OperationalError, ProgrammingError
+
+
+class SafeCreateModel(migrations.CreateModel):
+    """CreateModel that silently skips if the table already exists (idempotent)."""
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        try:
+            super().database_forwards(app_label, schema_editor, from_state, to_state)
+        except (OperationalError, ProgrammingError):
+            pass  # table already exists — mark migration applied and move on
 
 
 class Migration(migrations.Migration):
@@ -12,7 +22,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
+        SafeCreateModel(
             name='OrgAPIKey',
             fields=[
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
