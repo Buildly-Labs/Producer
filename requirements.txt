@@ -16,5 +16,9 @@ boto3>=1.34.0
 # ── Transcription (OpenAI Whisper API) ───────────────────────────────────────
 openai>=1.30.0
 
+# ── Text-to-Speech ────────────────────────────────────────────────────────────
+# edge-tts: free Microsoft Azure neural TTS voices, no API key required
+edge-tts>=6.1.9
+
 # ── Podcast RSS feed generation ───────────────────────────────────────────────
 feedgen>=0.9.0

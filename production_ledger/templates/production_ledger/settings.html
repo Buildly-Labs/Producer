@@ -88,5 +88,76 @@
             </div>
         </div>
     </div>
+
+    <!-- API Keys -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-1">
+            <h2 class="text-lg font-semibold text-[var(--text-primary)]">API Keys</h2>
+            {% if openai_key_configured %}
+            <span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 rounded-full px-2 py-0.5">
+                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                OpenAI configured
+            </span>
+            {% else %}
+            <span class="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
+                Using free edge-tts voices
+            </span>
+            {% endif %}
+        </div>
+        <p class="text-sm text-[var(--text-muted)] mb-4">
+            Add an OpenAI API key to enable high-quality neural TTS voices for intro announcements.
+            Without a key, the free <a href="https://github.com/rany2/edge-tts" class="underline" target="_blank">edge-tts</a> voices are used automatically.
+        </p>
+
+        {% if messages %}
+        {% for message in messages %}
+        {% if 'api_key' in message.tags %}
+        <div class="mb-3 p-3 rounded-lg text-sm {% if message.level_tag == 'success' %}bg-green-50 text-green-800{% else %}bg-red-50 text-red-800{% endif %}">
+            {{ message }}
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% endif %}
+
+        <form method="post" action="{% url 'production_ledger:settings' %}" class="space-y-4">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="save_api_key">
+            <div>
+                <label class="block text-sm font-medium text-[var(--text-primary)] mb-1">
+                    OpenAI API Key
+                    <span class="font-normal text-[var(--text-muted)]">(sk-…)</span>
+                </label>
+                <div class="flex gap-2">
+                    <input type="password" name="openai_api_key"
+                           id="openai_api_key"
+                           placeholder="{% if openai_key_configured %}●●●●●●●● (already saved — paste to replace){% else %}sk-proj-…{% endif %}"
+                           autocomplete="off"
+                           class="flex-1 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]">
+                    <button type="button"
+                            onclick="document.getElementById('openai_api_key').type = document.getElementById('openai_api_key').type === 'password' ? 'text' : 'password'"
+                            class="px-3 py-2 text-xs rounded-lg border border-[var(--border-primary)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]">
+                        Show
+                    </button>
+                </div>
+                <p class="mt-1 text-xs text-[var(--text-muted)]">
+                    Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" class="underline">platform.openai.com/api-keys</a>.
+                    Stored securely in the database, visible only to org admins.
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit"
+                        class="btn-primary text-sm px-4 py-2 rounded-lg">
+                    Save API Key
+                </button>
+                {% if openai_key_configured %}
+                <button type="submit" name="action" value="delete_api_key"
+                        class="text-sm px-4 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
+                        onclick="return confirm('Remove the OpenAI API key? TTS will fall back to free edge-tts voices.')">
+                    Remove Key
+                </button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
 </div>
 {% endblock %}

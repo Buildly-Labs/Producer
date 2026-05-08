@@ -2422,7 +2422,7 @@ class SettingsView(LoginRequiredMixin, OrganizationMixin, TemplateView):
     template_name = 'production_ledger/settings.html'
 
     def get_context_data(self, **kwargs):
-        from .models import EpisodeType
+        from .models import EpisodeType, OrgAPIKey
         context = super().get_context_data(**kwargs)
         org_uuid = self.get_organization_uuid()
         context['episode_types'] = EpisodeType.objects.filter(
@@ -2433,7 +2433,31 @@ class SettingsView(LoginRequiredMixin, OrganizationMixin, TemplateView):
         context['guest_count'] = Guest.objects.filter(organization_uuid=org_uuid).count()
         context['transcript_count'] = Transcript.objects.filter(organization_uuid=org_uuid).count()
         context['asset_count'] = MediaAsset.objects.filter(organization_uuid=org_uuid).count()
+        context['openai_key_configured'] = bool(OrgAPIKey.get_key(org_uuid, OrgAPIKey.SERVICE_OPENAI))
         return context
+
+    def post(self, request, *args, **kwargs):
+        from .models import OrgAPIKey
+        org_uuid = self.get_organization_uuid()
+        action = request.POST.get('action')
+
+        if action == 'save_api_key':
+            key_value = request.POST.get('openai_api_key', '').strip()
+            if key_value:
+                OrgAPIKey.objects.update_or_create(
+                    organization_uuid=org_uuid,
+                    service=OrgAPIKey.SERVICE_OPENAI,
+                    defaults={'api_key': key_value, 'updated_by': request.user},
+                )
+                messages.success(request, 'OpenAI API key saved.', extra_tags='api_key')
+            else:
+                messages.error(request, 'Please paste a key before saving.', extra_tags='api_key')
+
+        elif action == 'delete_api_key':
+            OrgAPIKey.objects.filter(organization_uuid=org_uuid, service=OrgAPIKey.SERVICE_OPENAI).delete()
+            messages.success(request, 'OpenAI API key removed. TTS will use free edge-tts voices.', extra_tags='api_key')
+
+        return redirect('production_ledger:settings')
 
 
 # =============================================================================

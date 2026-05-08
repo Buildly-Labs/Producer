@@ -1432,3 +1432,56 @@ class PlatformComment(models.Model):
     @property
     def is_top_level(self):
         return self.parent_id is None
+
+
+# =============================================================================
+# ORGANIZATION API KEYS
+# =============================================================================
+
+class OrgAPIKey(models.Model):
+    """
+    Stores third-party API keys for an organization.
+    Keys are stored in plain text (encrypted-at-rest via DB/Spaces).
+    Only admins of the organization can view or update these.
+
+    Supported services:
+      openai     — OpenAI API key for TTS / AI features
+    """
+    SERVICE_OPENAI = 'openai'
+    SERVICE_CHOICES = [
+        (SERVICE_OPENAI, 'OpenAI (TTS, AI writing)'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization_uuid = models.UUIDField(db_index=True)
+    service = models.CharField(max_length=50, choices=SERVICE_CHOICES)
+    api_key = models.CharField(max_length=512, help_text="API key for this service")
+    label = models.CharField(max_length=100, blank=True, help_text="Optional label, e.g. 'Production key'")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='updated_api_keys',
+    )
+
+    class Meta:
+        verbose_name = "Organization API Key"
+        verbose_name_plural = "Organization API Keys"
+        unique_together = [['organization_uuid', 'service']]
+        indexes = [
+            models.Index(fields=['organization_uuid', 'service']),
+        ]
+
+    def __str__(self):
+        masked = f"{self.api_key[:8]}…" if len(self.api_key) > 8 else "***"
+        return f"{self.get_service_display()} [{masked}] ({self.organization_uuid})"
+
+    @classmethod
+    def get_key(cls, organization_uuid, service) -> str | None:
+        """Return the API key value for a service, or None if not configured."""
+        try:
+            return cls.objects.get(organization_uuid=organization_uuid, service=service).api_key
+        except cls.DoesNotExist:
+            return None

@@ -1483,7 +1483,7 @@ class IntroPreviewAPI(APIView):
 
     def post(self, request, pk):
         from .models import Episode  # noqa: PLC0415
-        from .services.tts import _openai_tts, VOICES, MODELS, DEFAULT_VOICE, DEFAULT_MODEL  # noqa: PLC0415
+        from .services.tts import _openai_tts, _edge_tts, _resolve_openai_key, VOICES, MODELS, DEFAULT_VOICE, DEFAULT_MODEL, EDGE_TTS_VOICES, DEFAULT_EDGE_VOICE  # noqa: PLC0415
         import uuid as _uuid  # noqa: PLC0415
         import tempfile as _tmp  # noqa: PLC0415
         import shutil as _sh  # noqa: PLC0415
@@ -1498,6 +1498,7 @@ class IntroPreviewAPI(APIView):
         text  = (request.data.get('text') or '').strip()
         voice = request.data.get('voice', DEFAULT_VOICE)
         model = request.data.get('model', DEFAULT_MODEL)
+        edge_voice = request.data.get('edge_voice', DEFAULT_EDGE_VOICE)
 
         valid_voices = [v for v, _ in VOICES]
         if voice not in valid_voices:
@@ -1513,16 +1514,29 @@ class IntroPreviewAPI(APIView):
                 show_name=episode.show.name or 'Podcast',
             )
 
-        try:
-            # Call OpenAI TTS directly — no silent system-TTS fallback here
-            # so if OpenAI fails the user sees the actual error rather than
-            # always hearing the same macOS 'say' voice.
-            tts_path, duration = _openai_tts(text, voice, model, speed=1.0)
-        except Exception as exc:
-            return Response(
-                {'detail': f'OpenAI TTS failed: {exc}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        org_uuid = episode.show.organization_uuid
+        openai_key = _resolve_openai_key(org_uuid)
+
+        if openai_key:
+            try:
+                tts_path, duration = _openai_tts(text, voice, model, speed=1.0, api_key=openai_key)
+                used_engine = 'openai'
+            except Exception as exc:
+                return Response(
+                    {'detail': f'OpenAI TTS failed: {exc}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+        else:
+            # No OpenAI key — use edge-tts (free Microsoft neural voices)
+            try:
+                tts_path, duration = _edge_tts(text, voice=edge_voice)
+                used_engine = 'edge'
+                voice = edge_voice
+            except Exception as exc:
+                return Response(
+                    {'detail': f'Edge-TTS failed: {exc}. Configure an OpenAI API key in Settings → API Keys for higher-quality voices.'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
         # Store the file in a stable session-scoped temp location
         token = str(_uuid.uuid4())
@@ -1541,5 +1555,6 @@ class IntroPreviewAPI(APIView):
             'duration': round(duration, 1),
             'voice':    voice,
             'model':    model,
+            'engine':   used_engine,
         }, status=status.HTTP_200_OK)
 

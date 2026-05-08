@@ -164,6 +164,12 @@ SPACES_SECRET = os.environ.get('SPACES_SECRET', '')
 DIGITALOCEAN_LLM_API_KEY = os.environ.get('DIGITALOCEAN_LLM_API_KEY')
 DIGITALOCEAN_LLM_ENDPOINT = os.environ.get('DIGITALOCEAN_LLM_ENDPOINT')
 
+# OpenAI API key — used for TTS and AI writing features.
+# Can be set via environment variable OR stored per-organization in the
+# OrgAPIKey model (via Settings → API Keys in the Producer UI).
+# The OrgAPIKey value takes precedence over the environment variable.
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+
 
 # Rest Framework
 

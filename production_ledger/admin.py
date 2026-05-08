@@ -429,7 +429,7 @@ class InvitationAdmin(admin.ModelAdmin):
 # DISTRIBUTION & SHORTS
 # =============================================================================
 
-from .models import PodcastFeedConfig, PodcastDistribution, VideoShort
+from .models import PodcastFeedConfig, PodcastDistribution, VideoShort, OrgAPIKey
 
 
 @admin.register(PodcastFeedConfig)
@@ -453,3 +453,10 @@ class VideoShortAdmin(admin.ModelAdmin):
     list_filter = ('aspect_ratio', 'status')
     search_fields = ('title', 'episode__title')
     readonly_fields = ('id', 'created_at', 'updated_at', 'render_started_at', 'render_completed_at')
+
+
+@admin.register(OrgAPIKey)
+class OrgAPIKeyAdmin(admin.ModelAdmin):
+    list_display = ('organization_uuid', 'service', 'label', 'updated_at')
+    list_filter = ('service',)
+    readonly_fields = ('id', 'created_at', 'updated_at')
