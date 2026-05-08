@@ -234,6 +234,98 @@
     </div>
 
     <!-- ═══════════════════════════════════════════
+         SECTION 2a — EXTRACT AUDIO FROM VIDEO
+    ═══════════════════════════════════════════ -->
+    {% if video_assets %}
+    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div class="px-5 py-4 bg-indigo-50 border-b border-gray-200 flex items-center gap-3">
+            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                <svg class="w-4 h-4 text-indigo-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+                </svg>
+            </div>
+            <div>
+                <h3 class="font-semibold text-gray-900">Extract Audio for Podcast RSS</h3>
+                <p class="text-xs text-gray-500 mt-0.5">Strip audio from your uploaded video and publish it to all podcast platforms automatically</p>
+            </div>
+        </div>
+        <div class="p-5">
+            {% if can_publish %}
+            <form method="post" class="space-y-4" id="extract-audio-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="extract_audio_from_video">
+
+                <!-- Asset selector -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Select source video</label>
+                    <div class="space-y-2">
+                        {% for asset in video_assets %}
+                        <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:border-indigo-400 cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
+                            <input type="radio" name="video_asset_id" value="{{ asset.pk }}"
+                                   class="mt-0.5 h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                                   {% if forloop.first %}checked{% endif %}>
+                            <div class="flex-1 min-w-0">
+                                <span class="text-sm font-medium text-gray-900">{{ asset.label|default:asset.filename|default:"Unnamed video" }}</span>
+                                {% if asset.file_size %}<span class="ml-2 text-xs text-gray-400">{{ asset.file_size|filesizeformat }}</span>{% endif %}
+                                {% if asset.duration_seconds %}<span class="ml-2 text-xs text-gray-400">{{ asset.duration_seconds }}s</span>{% endif %}
+                                {% if asset.external_url %}<span class="text-xs text-gray-400 truncate block mt-0.5">{{ asset.external_url|truncatechars:70 }}</span>{% endif %}
+                            </div>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Bitrate -->
+                <div class="flex items-center gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Audio quality</label>
+                        <select name="audio_bitrate" class="rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                            <option value="128k">128 kbps — smaller file</option>
+                            <option value="192k" selected>192 kbps — standard podcast</option>
+                            <option value="320k">320 kbps — high quality</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Intro toggle -->
+                <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" name="add_intro" id="add_intro_toggle"
+                               class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                               onchange="document.getElementById('intro_options').classList.toggle('hidden', !this.checked)">
+                        <div>
+                            <span class="text-sm font-medium text-gray-900">Add intro announcement</span>
+                            <p class="text-xs text-gray-500">Prepend a spoken announcement over a music bed at the start of the episode</p>
+                        </div>
+                    </label>
+                    <div id="intro_options" class="hidden space-y-2 pl-7">
+                        <label class="block text-xs font-medium text-gray-700">Custom intro text <span class="font-normal text-gray-400">(leave blank to auto-generate from episode title)</span></label>
+                        <textarea name="intro_text" rows="3" placeholder="Welcome to The Forge Podcast. This episode is: {{ episode.title }}. Let's get started."
+                                  class="block w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 resize-none"></textarea>
+                        <p class="text-xs text-gray-400">Uses the system text-to-speech engine (macOS: Alex/Samantha voice; Linux: espeak). A music bed is generated automatically.</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button type="submit" id="extract-btn"
+                            onclick="this.disabled=true; this.innerHTML='<svg class=\'animate-spin w-4 h-4\' fill=\'none\' viewBox=\'0 0 24 24\'><circle class=\'opacity-25\' cx=\'12\' cy=\'12\' r=\'10\' stroke=\'currentColor\' stroke-width=\'4\'></circle><path class=\'opacity-75\' fill=\'currentColor\' d=\'M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z\'></path></svg> Extracting…'; this.form.submit();"
+                            class="inline-flex items-center gap-2 px-5 py-2 bg-indigo-700 text-white text-sm font-semibold rounded-lg hover:bg-indigo-800 disabled:opacity-60">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        Extract &amp; Publish Audio
+                    </button>
+                    <p class="text-xs text-gray-400">This downloads the video from storage, extracts audio, and publishes it to all podcast platform records. Large files may take a minute.</p>
+                </div>
+            </form>
+            {% else %}
+            <p class="text-sm text-gray-500">Producer role or higher required to extract audio.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ═══════════════════════════════════════════
          SECTION 2b — YOUTUBE UPLOAD
     ═══════════════════════════════════════════ -->
     {% with yt_dist=distributions.youtube %}

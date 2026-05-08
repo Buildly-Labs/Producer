@@ -1127,6 +1127,80 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
             messages.success(request, f'Video uploaded to YouTube: {youtube_url}')
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
+        if action == 'extract_audio_from_video':
+            from .services.audio_extraction import cleanup_work_dir, extract_audio_from_video  # noqa: PLC0415
+            from .services.distribution import publish_episode_audio, build_and_publish_feed  # noqa: PLC0415
+
+            asset_id = request.POST.get('video_asset_id')
+            if not asset_id:
+                messages.error(request, 'Select a video asset to extract audio from.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            try:
+                video_asset = episode.media_assets.get(pk=asset_id, asset_type=AssetType.VIDEO)
+            except Exception:
+                messages.error(request, 'Video asset not found on this episode.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            if not video_asset.external_url:
+                messages.error(request, 'Video asset has no public URL.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            add_intro = request.POST.get('add_intro') == 'on'
+            intro_text = request.POST.get('intro_text', '').strip() or None
+            bitrate = request.POST.get('audio_bitrate') or '192k'
+
+            audio_path = None
+            try:
+                try:
+                    feed_config = episode.show.podcast_feed_config
+                    show_name = feed_config.feed_title or episode.show.name
+                except Exception:
+                    show_name = episode.show.name
+
+                audio_path, duration = extract_audio_from_video(
+                    video_url=video_asset.external_url,
+                    episode_title=episode.title,
+                    show_name=show_name,
+                    add_intro=add_intro,
+                    intro_text=intro_text,
+                    bitrate=bitrate,
+                )
+
+                # Publish the extracted audio through the normal distribution flow
+                with open(audio_path, 'rb') as audio_file:
+                    result = publish_episode_audio(
+                        episode,
+                        audio_file,
+                        f"{episode.title}.mp3".replace('/', '-'),
+                        duration_seconds=duration,
+                        user=request.user,
+                    )
+
+                # Rebuild RSS feed
+                try:
+                    build_and_publish_feed(episode.show, user=request.user)
+                except Exception as exc:
+                    messages.warning(request, f'Audio published, but feed rebuild failed: {exc}')
+
+                intro_label = " (with intro)" if add_intro else ""
+                messages.success(
+                    request,
+                    f'Audio extracted{intro_label} and published to {len(result["distributions"])} platform(s). '
+                    f'Duration: {duration}s. RSS feed updated.',
+                )
+
+            except RuntimeError as exc:
+                messages.error(request, str(exc))
+            except Exception as exc:
+                logger.exception("Audio extraction failed for episode %s", episode.pk)
+                messages.error(request, f'Audio extraction failed: {exc}')
+            finally:
+                if audio_path:
+                    cleanup_work_dir(audio_path)
+
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
         audio_file = request.FILES.get('audio')
         if not audio_file:
             messages.error(request, 'Audio file is required.')
