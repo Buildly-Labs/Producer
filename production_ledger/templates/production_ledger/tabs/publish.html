@@ -310,20 +310,32 @@
                                 <label class="block text-xs font-medium text-gray-700 mb-1">Voice</label>
                                 <select name="intro_voice" id="intro_voice"
                                         class="w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                    <option value="onyx" selected>Onyx — deep, authoritative</option>
-                                    <option value="alloy">Alloy — neutral, balanced</option>
-                                    <option value="echo">Echo — clear, professional</option>
-                                    <option value="fable">Fable — warm, storytelling</option>
-                                    <option value="nova">Nova — bright, energetic</option>
-                                    <option value="shimmer">Shimmer — soft, conversational</option>
+                                    <optgroup label="★ Recommended for podcasts">
+                                        <option value="coral" selected>Coral — warm, conversational</option>
+                                        <option value="marin">Marin — clear, expressive</option>
+                                        <option value="cedar">Cedar — rich, broadcast-ready</option>
+                                        <option value="ash">Ash — smooth, authoritative</option>
+                                        <option value="sage">Sage — calm, measured</option>
+                                        <option value="verse">Verse — dynamic, versatile</option>
+                                        <option value="ballad">Ballad — emotive, storytelling</option>
+                                    </optgroup>
+                                    <optgroup label="Classic voices">
+                                        <option value="onyx">Onyx — deep, professional</option>
+                                        <option value="nova">Nova — bright, energetic</option>
+                                        <option value="alloy">Alloy — neutral, balanced</option>
+                                        <option value="echo">Echo — clear, precise</option>
+                                        <option value="fable">Fable — warm, narrative</option>
+                                        <option value="shimmer">Shimmer — soft, approachable</option>
+                                    </optgroup>
                                 </select>
                             </div>
                             <div class="flex-1 min-w-[160px]">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Quality</label>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Model</label>
                                 <select name="intro_model" id="intro_model"
                                         class="w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                    <option value="tts-1-hd" selected>High Definition</option>
-                                    <option value="tts-1">Standard (faster)</option>
+                                    <option value="gpt-4o-mini-tts" selected>GPT-4o Mini TTS ★ most natural</option>
+                                    <option value="tts-1-hd">TTS-1 HD — legacy</option>
+                                    <option value="tts-1">TTS-1 — legacy (faster)</option>
                                 </select>
                             </div>
                         </div>
