@@ -11,7 +11,7 @@
             </h1>
         </div>
         
-        <form method="post" class="px-6 py-4 space-y-6">
+        <form method="post" enctype="multipart/form-data" class="px-6 py-4 space-y-6">
             {% csrf_token %}
 
             <fieldset class="space-y-6">
@@ -37,21 +37,52 @@
             <fieldset class="space-y-6">
                 <legend class="text-base font-semibold text-[var(--text-primary)] border-b border-[var(--border-default)] pb-2 w-full">Podcast RSS Feed</legend>
                 <p class="text-sm text-[var(--text-muted)] -mt-2">Configure your podcast feed for Apple Podcasts, Spotify, and other directories.</p>
+
                 {% for field in feed_form %}
+                {% if field.name == 'cover_art' %}
+                <div>
+                    <label class="block text-sm font-medium text-[var(--text-secondary)]">Cover Art</label>
+                    {% if existing_cover_art_url %}
+                    <div class="mb-2">
+                        <img src="{{ existing_cover_art_url }}" alt="Current cover art" class="w-24 h-24 object-cover rounded-lg border border-gray-200">
+                        <p class="text-xs text-[var(--text-muted)] mt-1">Current cover art</p>
+                    </div>
+                    {% endif %}
+                    {{ field }}
+                    <p class="mt-1 text-sm text-[var(--text-muted)]">JPEG or PNG, min 1400&times;1400 px. Upload a new file to replace the current image.</p>
+                    {% if field.errors %}<p class="mt-1 text-sm text-red-600">{{ field.errors|join:", " }}</p>{% endif %}
+                </div>
+                {% else %}
                 <div>
                     <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)]">
                         {{ field.label }}
                         {% if field.field.required %}<span class="text-red-500">*</span>{% endif %}
                     </label>
                     {{ field }}
-                    {% if field.help_text %}
-                    <p class="mt-1 text-sm text-[var(--text-muted)]">{{ field.help_text }}</p>
-                    {% endif %}
-                    {% if field.errors %}
-                    <p class="mt-1 text-sm text-red-600">{{ field.errors|join:", " }}</p>
-                    {% endif %}
+                    {% if field.help_text %}<p class="mt-1 text-sm text-[var(--text-muted)]">{{ field.help_text }}</p>{% endif %}
+                    {% if field.errors %}<p class="mt-1 text-sm text-red-600">{{ field.errors|join:", " }}</p>{% endif %}
                 </div>
+                {% endif %}
                 {% endfor %}
+
+                {% if feed_form.instance and feed_form.instance.feed_public_url %}
+                <div>
+                    <label class="block text-sm font-medium text-[var(--text-secondary)]">RSS Feed URL</label>
+                    <div class="flex items-center gap-2 mt-1">
+                        <input type="text" readonly value="{{ feed_form.instance.feed_public_url }}"
+                               class="block w-full rounded-md border-gray-300 bg-gray-50 text-sm text-gray-700 shadow-sm font-mono"
+                               id="rss-feed-url">
+                        <button type="button"
+                                onclick="navigator.clipboard.writeText(document.getElementById('rss-feed-url').value).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy'},1500)})"
+                                class="flex-shrink-0 px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100">Copy</button>
+                    </div>
+                    <p class="mt-1 text-xs text-[var(--text-muted)]">Submit this URL to Apple Podcasts, Spotify, and other directories.</p>
+                </div>
+                {% else %}
+                <div class="p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+                    Your RSS feed URL will be generated automatically when you save and publish your first episode audio.
+                </div>
+                {% endif %}
             </fieldset>
             {% endif %}
             

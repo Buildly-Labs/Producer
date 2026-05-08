@@ -365,17 +365,52 @@ class ShowUpdateView(LoginRequiredMixin, OrganizationMixin, RoleMixin, AuditMixi
         if 'feed_form' not in context:
             feed_config = getattr(self.object, 'podcast_feed_config', None)
             context['feed_form'] = PodcastFeedConfigForm(instance=feed_config)
+        context['existing_cover_art_url'] = getattr(
+            getattr(self.object, 'podcast_feed_config', None), 'cover_art_url', ''
+        )
         return context
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         form = self.get_form()
         feed_config = getattr(self.object, 'podcast_feed_config', None)
-        feed_form = PodcastFeedConfigForm(request.POST, instance=feed_config)
+        feed_form = PodcastFeedConfigForm(request.POST, request.FILES, instance=feed_config)
         if form.is_valid() and feed_form.is_valid():
             response = self.form_valid(form)
             feed_instance = feed_form.save(commit=False)
             feed_instance.show = self.object
+
+            # Auto-derive the feed public URL so users never have to supply it
+            from .services import storage as _storage  # noqa: PLC0415
+            feed_key = _storage.podcast_feed_key(
+                str(self.object.organization_uuid), self.object.slug
+            )
+            if not feed_instance.feed_public_url:
+                feed_instance.feed_public_url = _storage._public_url(feed_key)
+                feed_instance.feed_spaces_key = feed_key
+
+            # Upload cover art to DO Spaces if a file was provided
+            cover_art_file = request.FILES.get('cover_art')
+            if cover_art_file:
+                import mimetypes  # noqa: PLC0415
+                ext = mimetypes.guess_extension(cover_art_file.content_type) or '.jpg'
+                ext = ext.lstrip('.')
+                art_key = _storage.cover_art_key(
+                    str(self.object.organization_uuid),
+                    self.object.slug,
+                    f"cover.{ext}",
+                )
+                try:
+                    art_url = _storage.upload_file(
+                        cover_art_file,
+                        art_key,
+                        content_type=cover_art_file.content_type,
+                        public=True,
+                    )
+                    feed_instance.cover_art_url = art_url
+                except Exception:
+                    pass  # Don't block save if Spaces is unavailable
+
             feed_instance.save()
             return response
         return self.render_to_response(

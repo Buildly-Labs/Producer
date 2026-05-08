@@ -91,13 +91,20 @@ class ShowForm(TailwindFormMixin, forms.ModelForm):
 class PodcastFeedConfigForm(TailwindFormMixin, forms.ModelForm):
     """Form for editing a show's podcast RSS feed configuration."""
 
+    # File upload — handled in the view, not saved directly to the model field
+    cover_art = forms.ImageField(
+        required=False,
+        label="Cover Art",
+        help_text="JPEG or PNG, min 1400×1400 px, max 3000×3000 px",
+    )
+
     class Meta:
         model = PodcastFeedConfig
         fields = [
             'feed_title', 'feed_description', 'feed_language',
             'author_name', 'author_email',
             'category', 'subcategory',
-            'explicit', 'website_url', 'cover_art_url',
+            'explicit', 'website_url',
         ]
         widgets = {
             'feed_description': forms.Textarea(attrs={'rows': 3}),
