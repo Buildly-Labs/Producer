@@ -1475,15 +1475,15 @@ class IntroPreviewAPI(APIView):
         {
             "token":    "<uuid>",          # used by IntroPreviewServeView
             "duration": 12.3,              # seconds
-            "voice":    "onyx",
-            "model":    "tts-1-hd",
+            "voice":    "coral",
+            "model":    "gpt-4o-mini-tts",
         }
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
         from .models import Episode  # noqa: PLC0415
-        from .services.tts import generate_intro, VOICES, MODELS  # noqa: PLC0415
+        from .services.tts import generate_intro, VOICES, MODELS, DEFAULT_VOICE, DEFAULT_MODEL  # noqa: PLC0415
         import uuid as _uuid  # noqa: PLC0415
         import tempfile as _tmp  # noqa: PLC0415
         import shutil as _sh  # noqa: PLC0415
@@ -1496,15 +1496,15 @@ class IntroPreviewAPI(APIView):
             raise PermissionDenied
 
         text  = (request.data.get('text') or '').strip()
-        voice = request.data.get('voice', 'onyx')
-        model = request.data.get('model', 'tts-1-hd')
+        voice = request.data.get('voice', DEFAULT_VOICE)
+        model = request.data.get('model', DEFAULT_MODEL)
 
         valid_voices = [v for v, _ in VOICES]
         if voice not in valid_voices:
-            voice = 'onyx'
+            voice = DEFAULT_VOICE
         valid_models = [m for m, _ in MODELS]
         if model not in valid_models:
-            model = 'tts-1-hd'
+            model = DEFAULT_MODEL
 
         if not text:
             from .services.audio_extraction import _default_intro_text  # noqa: PLC0415
