@@ -776,7 +776,68 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
 
         context['can_publish'] = has_minimum_role(self.request.user, episode.show, Role.PRODUCER)
         context['can_mark_published'] = episode.status == EpisodeStatus.APPROVED and episode.is_checklist_complete()
+
+        # Build Spotify upload pack — title, HTML description (≤4000 chars), guests
+        context['spotify_pack'] = self._build_spotify_pack(episode)
         return context
+
+    def _build_spotify_pack(self, episode):
+        """Assemble pre-filled metadata for manual Spotify upload."""
+        # Description: show notes markdown converted to plain paragraphs, then guest bios
+        parts = []
+
+        show_note = getattr(episode, 'show_note_final', None)
+        if show_note and show_note.markdown:
+            # Strip markdown headers/bullets to plain text for Spotify's HTML field
+            import re  # noqa: PLC0415
+            plain = re.sub(r'#+\s*', '', show_note.markdown)
+            plain = re.sub(r'\*\*(.+?)\*\*', r'\1', plain)
+            plain = re.sub(r'\*(.+?)\*', r'\1', plain)
+            plain = re.sub(r'!\[.*?\]\(.*?\)', '', plain)  # strip images
+            # Convert [text](url) to <a href="url">text</a>
+            plain = re.sub(r'\[(.+?)\]\((https?://[^\)]+)\)', r'<a href="\2">\1</a>', plain)
+            plain = re.sub(r'^\s*[-*+]\s+', '', plain, flags=re.MULTILINE)
+            parts.append(plain.strip())
+
+        guests = list(
+            episode.episode_guests.select_related('guest').all()
+        )
+        if guests:
+            guest_lines = []
+            for eg in guests:
+                g = eg.guest
+                line = f"<b>{g.name}</b>"
+                if g.title or g.org:
+                    line += f" — {', '.join(filter(None, [g.title, g.org]))}"
+                if g.bio:
+                    line += f"<br>{g.bio}"
+                # Add any web/social links
+                if isinstance(g.links, dict):
+                    link_parts = [f'<a href="{v}">{k}</a>' for k, v in g.links.items() if v and v.startswith('http')]
+                    if link_parts:
+                        line += '<br>' + ' | '.join(link_parts)
+                guest_lines.append(line)
+            parts.append('<br><br>'.join(guest_lines))
+
+        # Add show website if configured
+        try:
+            feed_config = episode.show.podcast_feed_config
+            if feed_config and feed_config.website_url:
+                parts.append(f'Learn more: <a href="{feed_config.website_url}">{feed_config.website_url}</a>')
+        except Exception:
+            pass
+
+        description_html = '\n\n'.join(parts)
+        # Spotify hard cap is 4000 chars
+        if len(description_html) > 4000:
+            description_html = description_html[:3997] + '...'
+
+        return {
+            'title': episode.title,
+            'description_html': description_html,
+            'upload_url': 'https://creators.spotify.com',
+            'char_count': len(description_html),
+        }
 
     def post(self, request, *args, **kwargs):
         from .services import storage  # noqa: PLC0415
