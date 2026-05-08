@@ -468,3 +468,69 @@ class ShortAspectRatio:
         (SQUARE, 'Square (1:1) — Instagram / Twitter'),
         (HORIZONTAL, 'Horizontal (16:9) — YouTube Clip'),
     ]
+
+
+# =============================================================================
+# COMMENTS
+# =============================================================================
+
+class CommentPlatform:
+    """Platforms from which listener/viewer comments can be ingested or logged."""
+    YOUTUBE    = 'youtube'
+    APPLE      = 'apple'
+    SPOTIFY    = 'spotify'
+    AMAZON     = 'amazon'
+    IHEART     = 'iheart'
+    POCKET_CASTS = 'pocket_casts'
+    OVERCAST   = 'overcast'
+    CASTBOX    = 'castbox'
+    WEBSITE    = 'website'
+    EMAIL      = 'email'
+    OTHER      = 'other'
+
+    CHOICES = [
+        (YOUTUBE,      'YouTube'),
+        (APPLE,        'Apple Podcasts'),
+        (SPOTIFY,      'Spotify'),
+        (AMAZON,       'Amazon Music'),
+        (IHEART,       'iHeartRadio'),
+        (POCKET_CASTS, 'Pocket Casts'),
+        (OVERCAST,     'Overcast'),
+        (CASTBOX,      'Castbox'),
+        (WEBSITE,      'Website'),
+        (EMAIL,        'Email / DM'),
+        (OTHER,        'Other'),
+    ]
+
+    # Platforms with automated API sync support
+    AUTO_SYNC_PLATFORMS = [YOUTUBE]
+
+    ICONS = {
+        YOUTUBE:      '▶',
+        APPLE:        '',
+        SPOTIFY:      '●',
+        AMAZON:       '◆',
+        IHEART:       '♥',
+        POCKET_CASTS: '○',
+        OVERCAST:     '▲',
+        CASTBOX:      '□',
+        WEBSITE:      '🌐',
+        EMAIL:        '✉',
+        OTHER:        '💬',
+    }
+
+
+class CommentStatus:
+    NEW      = 'new'
+    READ     = 'read'
+    REPLIED  = 'replied'
+    SPAM     = 'spam'
+    ARCHIVED = 'archived'
+
+    CHOICES = [
+        (NEW,      'New'),
+        (READ,     'Read'),
+        (REPLIED,  'Replied'),
+        (SPAM,     'Spam'),
+        (ARCHIVED, 'Archived'),
+    ]

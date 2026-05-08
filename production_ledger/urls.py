@@ -119,6 +119,13 @@ urlpatterns = [
     path('exports/episode/<uuid:pk>/guest-brief/<uuid:guest_id>/', views.ExportGuestBriefView.as_view(), name='export_guest_brief'),
     path('exports/episode/<uuid:pk>/package/', views.ExportFullPackageView.as_view(), name='export_full_package'),
     
+    # Comments
+    path('comments/', views.CommentListView.as_view(), name='comment_list'),
+    path('comments/add/', views.ManualCommentCreateView.as_view(), name='comment_add'),
+    path('comments/<uuid:pk>/reply/', views.CommentReplyView.as_view(), name='comment_reply'),
+    path('comments/<uuid:pk>/status/', views.CommentStatusUpdateView.as_view(), name='comment_status'),
+    path('shows/<uuid:pk>/sync-comments/', views.CommentSyncView.as_view(), name='comment_sync'),
+
     # API endpoints
     path('api/', include('production_ledger.api_urls')),
 ]

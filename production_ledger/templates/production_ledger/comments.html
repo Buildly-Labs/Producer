@@ -1,0 +1,376 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Comments — Production Ledger{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  {# ── Header ─────────────────────────────────────────────────────────── #}
+  <div class="flex flex-wrap justify-between items-center gap-3">
+    <div>
+      <h1 class="text-2xl font-bold" style="color:var(--text-primary)">Comments</h1>
+      <p class="text-sm mt-1" style="color:var(--text-muted)">
+        Listener &amp; viewer comments from all connected platforms.
+        {% if unread_count %}
+          <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">{{ unread_count }} new</span>
+        {% endif %}
+      </p>
+    </div>
+
+    <div class="flex items-center gap-2">
+      {# Manual add button #}
+      <button type="button"
+              onclick="document.getElementById('modal-add-comment').classList.remove('hidden')"
+              class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border"
+              style="color:var(--text-primary);background:var(--bg-elevated);border-color:var(--border-color)">
+        <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        Add Comment
+      </button>
+    </div>
+  </div>
+
+  <div class="flex gap-6">
+
+    {# ── Filter sidebar ──────────────────────────────────────────────── #}
+    <aside class="w-52 shrink-0 space-y-5">
+
+      <form method="get" id="filter-form">
+        {# Platform #}
+        <div class="space-y-1">
+          <p class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted)">Platform</p>
+          <a href="?{% if selected_status %}status={{ selected_status }}&{% endif %}{% if selected_show %}show={{ selected_show }}{% endif %}"
+             class="block px-2 py-1 rounded text-sm {% if not selected_platform %}font-semibold{% endif %}"
+             style="color:var(--text-primary)">All</a>
+          {% for code, label in platform_choices %}
+          <a href="?platform={{ code }}{% if selected_status %}&status={{ selected_status }}{% endif %}{% if selected_show %}&show={{ selected_show }}{% endif %}"
+             class="block px-2 py-1 rounded text-sm {% if selected_platform == code %}font-semibold{% endif %}"
+             style="color:var(--text-secondary)">{{ label }}</a>
+          {% endfor %}
+        </div>
+
+        {# Status #}
+        <div class="space-y-1 mt-4">
+          <p class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted)">Status</p>
+          <a href="?{% if selected_platform %}platform={{ selected_platform }}&{% endif %}{% if selected_show %}show={{ selected_show }}{% endif %}"
+             class="block px-2 py-1 rounded text-sm {% if not selected_status %}font-semibold{% endif %}"
+             style="color:var(--text-primary)">All</a>
+          {% for code, label in status_choices %}
+          <a href="?status={{ code }}{% if selected_platform %}&platform={{ selected_platform }}{% endif %}{% if selected_show %}&show={{ selected_show }}{% endif %}"
+             class="block px-2 py-1 rounded text-sm {% if selected_status == code %}font-semibold{% endif %}"
+             style="color:var(--text-secondary)">{{ label }}</a>
+          {% endfor %}
+        </div>
+
+        {# Show #}
+        <div class="space-y-1 mt-4">
+          <p class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted)">Show</p>
+          <a href="?{% if selected_platform %}platform={{ selected_platform }}&{% endif %}{% if selected_status %}status={{ selected_status }}{% endif %}"
+             class="block px-2 py-1 rounded text-sm {% if not selected_show %}font-semibold{% endif %}"
+             style="color:var(--text-primary)">All</a>
+          {% for show in shows %}
+          <a href="?show={{ show.pk }}{% if selected_platform %}&platform={{ selected_platform }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}"
+             class="block px-2 py-1 rounded text-sm truncate {% if selected_show == show.pk|stringformat:'s' %}font-semibold{% endif %}"
+             style="color:var(--text-secondary)" title="{{ show.title }}">{{ show.title|truncatechars:24 }}</a>
+          {% endfor %}
+        </div>
+      </form>
+    </aside>
+
+    {# ── Comment list ────────────────────────────────────────────────── #}
+    <div class="flex-1 min-w-0 space-y-3">
+
+      {% if not comments %}
+      <div class="tab-content-card flex flex-col items-center justify-center py-16" style="color:var(--text-muted)">
+        <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+        </svg>
+        <p class="text-sm">No comments yet.</p>
+        {% if selected_platform or selected_status or selected_show %}
+        <a href="{% url 'production_ledger:comment_list' %}" class="mt-2 text-sm underline" style="color:var(--accent-primary)">Clear filters</a>
+        {% endif %}
+      </div>
+      {% else %}
+
+      {% for comment in comments %}
+      <div class="tab-content-card" id="comment-{{ comment.pk }}">
+        <div class="flex items-start gap-3">
+
+          {# Avatar #}
+          <div class="shrink-0 w-9 h-9 rounded-full overflow-hidden flex items-center justify-center text-sm font-bold"
+               style="background:var(--bg-elevated);color:var(--text-muted)">
+            {% if comment.author_profile_image %}
+            <img src="{{ comment.author_profile_image }}" alt="{{ comment.author_name }}" class="w-full h-full object-cover">
+            {% else %}
+            {{ comment.author_name|first|upper|default:"?" }}
+            {% endif %}
+          </div>
+
+          {# Content #}
+          <div class="flex-1 min-w-0">
+            <div class="flex flex-wrap items-center gap-2 mb-1">
+
+              {# Platform badge #}
+              {% if comment.platform == 'youtube' %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">YouTube</span>
+              {% elif comment.platform == 'apple' %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">Apple</span>
+              {% elif comment.platform == 'spotify' %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">Spotify</span>
+              {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">{{ comment.get_platform_display }}</span>
+              {% endif %}
+
+              {# Author #}
+              <span class="text-sm font-semibold" style="color:var(--text-primary)">
+                {% if comment.author_channel_url %}<a href="{{ comment.author_channel_url }}" target="_blank" rel="noopener" style="color:var(--accent-primary)">{{ comment.author_name|default:"Anonymous" }}</a>
+                {% else %}{{ comment.author_name|default:"Anonymous" }}{% endif %}
+              </span>
+
+              {# Timestamp #}
+              {% if comment.platform_created_at %}
+              <span class="text-xs" style="color:var(--text-muted)">{{ comment.platform_created_at|timesince }} ago</span>
+              {% endif %}
+
+              {# Like count #}
+              {% if comment.like_count %}
+              <span class="text-xs" style="color:var(--text-muted)">♥ {{ comment.like_count }}</span>
+              {% endif %}
+
+              {# Status badge #}
+              {% if comment.status == 'new' %}
+              <span class="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700">New</span>
+              {% elif comment.status == 'replied' %}
+              <span class="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Replied</span>
+              {% elif comment.status == 'spam' %}
+              <span class="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">Spam</span>
+              {% elif comment.status == 'archived' %}
+              <span class="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium" style="background:var(--bg-elevated);color:var(--text-muted)">Archived</span>
+              {% endif %}
+            </div>
+
+            {# Episode link #}
+            {% if comment.episode %}
+            <p class="text-xs mb-1" style="color:var(--text-muted)">
+              <a href="{% url 'production_ledger:episode_detail' comment.episode.pk %}" style="color:var(--accent-primary)">{{ comment.episode.title|truncatechars:60 }}</a>
+            </p>
+            {% endif %}
+
+            {# Comment body #}
+            <p class="text-sm leading-relaxed" style="color:var(--text-secondary)">{{ comment.body }}</p>
+
+            {# Existing reply #}
+            {% if comment.our_reply_text %}
+            <div class="mt-3 ml-2 pl-3 border-l-2" style="border-color:var(--accent-primary)">
+              <p class="text-xs font-medium mb-0.5" style="color:var(--accent-primary)">Our reply</p>
+              <p class="text-sm" style="color:var(--text-secondary)">{{ comment.our_reply_text }}</p>
+              {% if comment.our_reply_sent_at %}
+              <p class="text-xs mt-0.5" style="color:var(--text-muted)">Sent {{ comment.our_reply_sent_at|timesince }} ago{% if comment.replied_by %} by {{ comment.replied_by.get_full_name|default:comment.replied_by.username }}{% endif %}</p>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            {# Actions row #}
+            <div class="mt-3 flex flex-wrap items-center gap-3">
+
+              {# Reply form (collapsible) #}
+              {% if comment.status != 'spam' and comment.status != 'archived' %}
+              <button type="button"
+                      onclick="toggleReply('{{ comment.pk }}')"
+                      class="text-xs font-medium"
+                      style="color:var(--accent-primary)">
+                {% if comment.our_reply_text %}Edit reply{% else %}Reply{% endif %}
+              </button>
+              {% endif %}
+
+              {# Status actions #}
+              {% if comment.status == 'new' %}
+              <button type="button" class="text-xs" style="color:var(--text-muted)"
+                      onclick="updateStatus('{{ comment.pk }}', 'read', this.closest('[id]'))">Mark read</button>
+              {% endif %}
+              {% if comment.status != 'archived' %}
+              <button type="button" class="text-xs" style="color:var(--text-muted)"
+                      onclick="updateStatus('{{ comment.pk }}', 'archived', this.closest('[id]'))">Archive</button>
+              {% endif %}
+              {% if comment.status != 'spam' %}
+              <button type="button" class="text-xs" style="color:var(--text-muted)"
+                      onclick="updateStatus('{{ comment.pk }}', 'spam', this.closest('[id]'))">Spam</button>
+              {% endif %}
+            </div>
+
+            {# Inline reply textarea (hidden by default) #}
+            <div id="reply-form-{{ comment.pk }}" class="hidden mt-3">
+              <textarea id="reply-text-{{ comment.pk }}" rows="3"
+                        placeholder="Write your reply…"
+                        class="w-full rounded-md text-sm px-3 py-2"
+                        style="background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-color)">{% if comment.our_reply_text %}{{ comment.our_reply_text }}{% endif %}</textarea>
+              <div class="flex items-center gap-2 mt-2">
+                <button type="button"
+                        onclick="sendReply('{{ comment.pk }}')"
+                        class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-white"
+                        style="background:var(--accent-primary)">
+                  Send Reply
+                </button>
+                <button type="button"
+                        onclick="toggleReply('{{ comment.pk }}')"
+                        class="text-xs" style="color:var(--text-muted)">Cancel</button>
+                <span id="reply-status-{{ comment.pk }}" class="text-xs hidden" style="color:var(--accent-primary)"></span>
+              </div>
+            </div>
+
+          </div>{# /content #}
+        </div>{# /flex #}
+      </div>{# /comment card #}
+      {% endfor %}
+
+      {# Pagination #}
+      {% if is_paginated %}
+      <div class="flex justify-center gap-2 pt-4">
+        {% if page_obj.has_previous %}
+        <a href="?page={{ page_obj.previous_page_number }}{% if selected_platform %}&platform={{ selected_platform }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}{% if selected_show %}&show={{ selected_show }}{% endif %}"
+           class="px-3 py-1 rounded text-sm" style="background:var(--bg-elevated);color:var(--text-primary)">← Prev</a>
+        {% endif %}
+        <span class="px-3 py-1 text-sm" style="color:var(--text-muted)">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+        <a href="?page={{ page_obj.next_page_number }}{% if selected_platform %}&platform={{ selected_platform }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}{% if selected_show %}&show={{ selected_show }}{% endif %}"
+           class="px-3 py-1 rounded text-sm" style="background:var(--bg-elevated);color:var(--text-primary)">Next →</a>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% endif %}{# /if comments #}
+    </div>{# /comment list #}
+  </div>{# /flex layout #}
+</div>{# /space-y-6 #}
+
+
+{# ══ Modal: Add Comment Manually ════════════════════════════════════════════ #}
+<div id="modal-add-comment" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+     style="background:rgba(0,0,0,0.6)">
+  <div class="w-full max-w-lg rounded-xl shadow-xl p-6 space-y-4"
+       style="background:var(--bg-surface);color:var(--text-primary)">
+    <div class="flex justify-between items-center">
+      <h2 class="text-lg font-semibold">Add Comment Manually</h2>
+      <button type="button" onclick="document.getElementById('modal-add-comment').classList.add('hidden')"
+              class="text-xl leading-none" style="color:var(--text-muted)">&times;</button>
+    </div>
+
+    <form id="form-add-comment" class="space-y-3">
+      {% csrf_token %}
+      <div>
+        <label class="block text-sm mb-1" style="color:var(--text-secondary)">Platform</label>
+        <select name="platform" required
+                class="w-full rounded-md px-3 py-2 text-sm"
+                style="background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-color)">
+          {% for code, label in platform_choices %}
+          <option value="{{ code }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm mb-1" style="color:var(--text-secondary)">Show</label>
+        <select name="show"
+                class="w-full rounded-md px-3 py-2 text-sm"
+                style="background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-color)">
+          <option value="">— none —</option>
+          {% for show in shows %}
+          <option value="{{ show.pk }}">{{ show.title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm mb-1" style="color:var(--text-secondary)">Author Name</label>
+        <input type="text" name="author_name" placeholder="Listener name…"
+               class="w-full rounded-md px-3 py-2 text-sm"
+               style="background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-color)">
+      </div>
+      <div>
+        <label class="block text-sm mb-1" style="color:var(--text-secondary)">Comment *</label>
+        <textarea name="body" rows="4" required placeholder="Paste or type the comment…"
+                  class="w-full rounded-md px-3 py-2 text-sm"
+                  style="background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-color)"></textarea>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button"
+                onclick="document.getElementById('modal-add-comment').classList.add('hidden')"
+                class="px-4 py-2 text-sm rounded-md"
+                style="background:var(--bg-elevated);color:var(--text-secondary)">Cancel</button>
+        <button type="submit"
+                class="px-4 py-2 text-sm font-medium rounded-md text-white"
+                style="background:var(--accent-primary)">Save Comment</button>
+      </div>
+    </form>
+    <p id="add-comment-error" class="text-sm text-red-500 hidden"></p>
+  </div>
+</div>
+
+
+{# ══ JavaScript ══════════════════════════════════════════════════════════════ #}
+<script>
+function getCsrf() {
+  return document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+}
+
+function toggleReply(pk) {
+  document.getElementById('reply-form-' + pk).classList.toggle('hidden');
+}
+
+function sendReply(pk) {
+  const text = document.getElementById('reply-text-' + pk).value.trim();
+  const statusEl = document.getElementById('reply-status-' + pk);
+  if (!text) return;
+
+  fetch('{% url "production_ledger:comment_reply" "00000000-0000-0000-0000-000000000000" %}'.replace('00000000-0000-0000-0000-000000000000', pk), {
+    method: 'POST',
+    headers: {'X-CSRFToken': getCsrf(), 'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'reply_text=' + encodeURIComponent(text),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      statusEl.textContent = data.warning ? '⚠ Saved (send failed: ' + data.warning + ')' : '✓ Sent';
+      statusEl.classList.remove('hidden');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      statusEl.textContent = data.error || 'Error sending reply.';
+      statusEl.classList.remove('hidden');
+    }
+  })
+  .catch(() => { statusEl.textContent = 'Network error.'; statusEl.classList.remove('hidden'); });
+}
+
+function updateStatus(pk, newStatus, cardEl) {
+  fetch('{% url "production_ledger:comment_status" "00000000-0000-0000-0000-000000000000" %}'.replace('00000000-0000-0000-0000-000000000000', pk), {
+    method: 'POST',
+    headers: {'X-CSRFToken': getCsrf(), 'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'status=' + encodeURIComponent(newStatus),
+  })
+  .then(r => r.json())
+  .then(data => { if (data.ok) location.reload(); });
+}
+
+// Manual add comment form
+document.getElementById('form-add-comment').addEventListener('submit', function(e) {
+  e.preventDefault();
+  const errEl = document.getElementById('add-comment-error');
+  const fd = new FormData(this);
+  const body = new URLSearchParams(fd).toString();
+
+  fetch('{% url "production_ledger:comment_add" %}', {
+    method: 'POST',
+    headers: {'X-CSRFToken': getCsrf(), 'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body,
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      document.getElementById('modal-add-comment').classList.add('hidden');
+      location.reload();
+    } else {
+      errEl.textContent = data.error || 'Failed to add comment.';
+      errEl.classList.remove('hidden');
+    }
+  })
+  .catch(() => { errEl.textContent = 'Network error.'; errEl.classList.remove('hidden'); });
+});
+</script>
+{% endblock %}

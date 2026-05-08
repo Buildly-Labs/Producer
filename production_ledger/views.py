@@ -34,6 +34,8 @@ from .constants import (
     ApprovalStatus,
     ArtifactType,
     ClipPriority,
+    CommentPlatform,
+    CommentStatus,
     EpisodeStatus,
     IngestionStatus,
     MediaPlatform,
@@ -73,6 +75,7 @@ from .models import (
     EpisodeGuest,
     Guest,
     MediaAsset,
+    PlatformComment,
     Segment,
     Show,
     ShowJoinRequest,
@@ -2849,3 +2852,161 @@ class InvitationActionView(LoginRequiredMixin, View):
             messages.error(request, 'Unknown invitation action.')
 
         return redirect(reverse('production_ledger:user_management') + '?tab=invitations')
+
+
+# =============================================================================
+# COMMENTS
+# =============================================================================
+
+class CommentListView(LoginRequiredMixin, OrganizationMixin, ListView):
+    """Inbox view for all platform comments across shows/episodes."""
+    template_name = 'production_ledger/comments.html'
+    context_object_name = 'comments'
+    paginate_by = 40
+
+    def get_queryset(self):
+        org_uuid = get_user_organization_uuid(self.request.user)
+        qs = PlatformComment.objects.filter(
+            organization_uuid=org_uuid,
+            parent__isnull=True,   # top-level only in list
+        ).select_related('show', 'episode').order_by('-platform_created_at', '-created_at')
+
+        if p := self.request.GET.get('platform'):
+            qs = qs.filter(platform=p)
+        if s := self.request.GET.get('status'):
+            qs = qs.filter(status=s)
+        if show_pk := self.request.GET.get('show'):
+            qs = qs.filter(show__id=show_pk)
+        if ep_pk := self.request.GET.get('episode'):
+            qs = qs.filter(episode__id=ep_pk)
+
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        org_uuid = get_user_organization_uuid(self.request.user)
+        ctx['platform_choices'] = CommentPlatform.CHOICES
+        ctx['status_choices'] = CommentStatus.CHOICES
+        ctx['shows'] = Show.objects.filter(organization_uuid=org_uuid).order_by('title')
+        ctx['selected_platform'] = self.request.GET.get('platform', '')
+        ctx['selected_status']   = self.request.GET.get('status', '')
+        ctx['selected_show']     = self.request.GET.get('show', '')
+        ctx['unread_count'] = PlatformComment.objects.filter(
+            organization_uuid=org_uuid,
+            status=CommentStatus.NEW,
+            parent__isnull=True,
+        ).count()
+        return ctx
+
+
+class CommentReplyView(LoginRequiredMixin, OrganizationMixin, View):
+    """POST: post a reply to a comment and mark it as replied."""
+
+    def post(self, request, pk):
+        org_uuid = get_user_organization_uuid(request.user)
+        comment = get_object_or_404(PlatformComment, id=pk, organization_uuid=org_uuid)
+
+        if not has_minimum_role(request.user, comment.show, Role.EDITOR):
+            return JsonResponse({'error': 'Permission denied.'}, status=403)
+
+        reply_text = (request.POST.get('reply_text') or '').strip()
+        if not reply_text:
+            return JsonResponse({'error': 'Reply text is required.'}, status=400)
+
+        reply_id = ''
+        error_msg = ''
+
+        if comment.platform == CommentPlatform.YOUTUBE:
+            try:
+                from .services.comments import post_reply_to_youtube  # noqa: PLC0415
+                reply_id = post_reply_to_youtube(comment, reply_text, request.user)
+            except Exception as exc:
+                logger.exception('Failed to post YouTube reply for comment %s', pk)
+                error_msg = str(exc)
+
+        comment.our_reply_text       = reply_text
+        comment.our_reply_sent_at    = timezone.now()
+        comment.our_reply_external_id = reply_id
+        comment.status               = CommentStatus.REPLIED
+        comment.replied_by           = request.user
+        comment.save(update_fields=[
+            'our_reply_text', 'our_reply_sent_at', 'our_reply_external_id',
+            'status', 'replied_by',
+        ])
+
+        return JsonResponse({
+            'ok': True,
+            'warning': error_msg or None,
+            'reply_id': reply_id,
+        })
+
+
+class CommentStatusUpdateView(LoginRequiredMixin, OrganizationMixin, View):
+    """POST: update a comment's status (read, spam, archived)."""
+
+    def post(self, request, pk):
+        org_uuid = get_user_organization_uuid(request.user)
+        comment = get_object_or_404(PlatformComment, id=pk, organization_uuid=org_uuid)
+
+        new_status = (request.POST.get('status') or '').strip()
+        valid = {c[0] for c in CommentStatus.CHOICES}
+        if new_status not in valid:
+            return JsonResponse({'error': 'Invalid status.'}, status=400)
+
+        comment.status = new_status
+        comment.save(update_fields=['status'])
+        return JsonResponse({'ok': True, 'status': new_status})
+
+
+class ManualCommentCreateView(LoginRequiredMixin, OrganizationMixin, View):
+    """POST: create a comment manually for platforms without an API."""
+
+    def post(self, request):
+        org_uuid = get_user_organization_uuid(request.user)
+
+        show_id    = request.POST.get('show') or None
+        episode_id = request.POST.get('episode') or None
+        platform   = (request.POST.get('platform') or '').strip()
+        author     = (request.POST.get('author_name') or '').strip()
+        body       = (request.POST.get('body') or '').strip()
+
+        valid_platforms = {c[0] for c in CommentPlatform.CHOICES}
+        if platform not in valid_platforms:
+            return JsonResponse({'error': 'Invalid platform.'}, status=400)
+        if not body:
+            return JsonResponse({'error': 'Comment body is required.'}, status=400)
+
+        show = episode = None
+        if show_id:
+            show = get_object_or_404(Show, id=show_id, organization_uuid=org_uuid)
+        if episode_id:
+            episode = get_object_or_404(Episode, id=episode_id)
+            if episode.show.organization_uuid != org_uuid:
+                raise PermissionDenied
+
+        comment = PlatformComment.objects.create(
+            organization_uuid=org_uuid,
+            show=show,
+            episode=episode,
+            platform=platform,
+            author_name=author,
+            body=body,
+            added_by=request.user,
+            status=CommentStatus.NEW,
+        )
+        return JsonResponse({'ok': True, 'id': str(comment.id)})
+
+
+class CommentSyncView(LoginRequiredMixin, OrganizationMixin, View):
+    """POST: trigger a YouTube comment sync for one show."""
+
+    def post(self, request, pk):
+        org_uuid = get_user_organization_uuid(request.user)
+        show = get_object_or_404(Show, id=pk, organization_uuid=org_uuid)
+
+        if not has_minimum_role(request.user, show, Role.EDITOR):
+            return JsonResponse({'error': 'Permission denied.'}, status=403)
+
+        from .services.comments import sync_youtube_comments  # noqa: PLC0415
+        result = sync_youtube_comments(show)
+        return JsonResponse(result)

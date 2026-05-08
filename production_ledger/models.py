@@ -33,6 +33,8 @@ from .constants import (
     SourceType,
     TranscriptFormat,
     TranscriptSourceType,
+    CommentPlatform,
+    CommentStatus,
 )
 
 
@@ -1341,3 +1343,92 @@ class Invitation(models.Model):
 
     def __str__(self):
         return f"Invite for {self.email} ({self.get_role_display()})"
+
+
+# =============================================================================
+# PLATFORM COMMENT
+# =============================================================================
+
+class PlatformComment(models.Model):
+    """
+    A listener/viewer comment collected from any podcast or video platform.
+
+    Automated ingestion is currently supported for YouTube (via the
+    Data API v3 using the per-show OAuth credentials stored in
+    PodcastFeedConfig).  All other platforms support manual entry.
+
+    Threading: top-level comments have ``parent`` = None.
+    Platform replies are stored as child records linked via ``parent``.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Scoping
+    organization_uuid = models.UUIDField(db_index=True)
+    show    = models.ForeignKey('Show',    on_delete=models.CASCADE, related_name='platform_comments', null=True, blank=True)
+    episode = models.ForeignKey('Episode', on_delete=models.CASCADE, related_name='platform_comments', null=True, blank=True)
+
+    # Source
+    platform         = models.CharField(max_length=50, choices=CommentPlatform.CHOICES, db_index=True)
+    external_id      = models.CharField(max_length=255, blank=True, db_index=True)  # Platform's own comment ID
+    parent           = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='replies')
+
+    # Author
+    author_name          = models.CharField(max_length=255, blank=True)
+    author_channel_url   = models.URLField(max_length=500, blank=True)
+    author_profile_image = models.URLField(max_length=500, blank=True)
+
+    # Content
+    body       = models.TextField()
+    like_count = models.PositiveIntegerField(default=0)
+
+    # Timestamps
+    platform_created_at = models.DateTimeField(null=True, blank=True)  # Original post time
+    synced_at           = models.DateTimeField(auto_now=True)
+    created_at          = models.DateTimeField(auto_now_add=True)
+
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=CommentStatus.CHOICES,
+        default=CommentStatus.NEW,
+        db_index=True,
+    )
+
+    # Our reply
+    our_reply_text       = models.TextField(blank=True)
+    our_reply_sent_at    = models.DateTimeField(null=True, blank=True)
+    our_reply_external_id = models.CharField(max_length=255, blank=True)  # Reply's platform ID after posting
+
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='added_platform_comments',
+    )
+    replied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='replied_platform_comments',
+    )
+
+    class Meta:
+        ordering = ['-platform_created_at', '-created_at']
+        indexes = [
+            models.Index(fields=['platform', 'external_id']),
+            models.Index(fields=['organization_uuid', 'status']),
+            models.Index(fields=['episode', 'platform']),
+        ]
+
+    def __str__(self):
+        author = self.author_name or 'Anonymous'
+        preview = (self.body or '')[:60]
+        return f"{self.get_platform_display()} — {author}: {preview}"
+
+    @property
+    def is_replied(self):
+        return bool(self.our_reply_sent_at)
+
+    @property
+    def is_top_level(self):
+        return self.parent_id is None
