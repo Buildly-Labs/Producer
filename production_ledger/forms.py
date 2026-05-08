@@ -23,6 +23,7 @@ from .models import (
     EpisodeGuest,
     Guest,
     MediaAsset,
+    PodcastFeedConfig,
     Segment,
     Show,
     ShowJoinRequest,
@@ -84,6 +85,22 @@ class ShowForm(TailwindFormMixin, forms.ModelForm):
             'default_intro_text': forms.Textarea(attrs={'rows': 3}),
             'default_outro_text': forms.Textarea(attrs={'rows': 3}),
             'brand_primary_color': forms.TextInput(attrs={'type': 'color'}),
+        }
+
+
+class PodcastFeedConfigForm(TailwindFormMixin, forms.ModelForm):
+    """Form for editing a show's podcast RSS feed configuration."""
+
+    class Meta:
+        model = PodcastFeedConfig
+        fields = [
+            'feed_title', 'feed_description', 'feed_language',
+            'author_name', 'author_email',
+            'category', 'subcategory',
+            'explicit', 'website_url', 'cover_art_url',
+        ]
+        widgets = {
+            'feed_description': forms.Textarea(attrs={'rows': 3}),
         }
 
 

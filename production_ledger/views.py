@@ -54,6 +54,7 @@ from .forms import (
     LiveNotesForm,
     MediaAssetLinkForm,
     MediaAssetUploadForm,
+    PodcastFeedConfigForm,
     QuickClipForm,
     SegmentForm,
     ShowForm,
@@ -347,18 +348,40 @@ class ShowDetailView(LoginRequiredMixin, OrganizationMixin, RoleMixin, DetailVie
 
 
 class ShowUpdateView(LoginRequiredMixin, OrganizationMixin, RoleMixin, AuditMixin, UpdateView):
-    """Update a show."""
-    
+    """Update a show, including its podcast feed configuration."""
+
     model = Show
     form_class = ShowForm
     template_name = 'production_ledger/show_form.html'
     required_roles = [Role.ADMIN]
-    
+
     def get_object(self):
         obj = super().get_object()
         self.check_permissions(obj)
         return obj
-    
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if 'feed_form' not in context:
+            feed_config = getattr(self.object, 'podcast_feed_config', None)
+            context['feed_form'] = PodcastFeedConfigForm(instance=feed_config)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        form = self.get_form()
+        feed_config = getattr(self.object, 'podcast_feed_config', None)
+        feed_form = PodcastFeedConfigForm(request.POST, instance=feed_config)
+        if form.is_valid() and feed_form.is_valid():
+            response = self.form_valid(form)
+            feed_instance = feed_form.save(commit=False)
+            feed_instance.show = self.object
+            feed_instance.save()
+            return response
+        return self.render_to_response(
+            self.get_context_data(form=form, feed_form=feed_form)
+        )
+
     def get_success_url(self):
         return reverse('production_ledger:show_detail', kwargs={'pk': self.object.pk})
 
