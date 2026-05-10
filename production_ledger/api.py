@@ -802,11 +802,20 @@ class UploadVideoAPI(APIView):
 
         # Optionally trigger transcription
         if auto_transcribe:
-            try:
-                transcript = transcription_svc.transcribe_media_asset(media_asset, user=request.user)
-                result['transcript_id'] = str(transcript.id)
-            except Exception as exc:
-                result['transcription_error'] = str(exc)
+            import threading  # noqa: PLC0415
+
+            def _run(asset_pk, user):
+                import django.db  # noqa: PLC0415
+                try:
+                    asset = MediaAsset.objects.get(pk=asset_pk)
+                    transcription_svc.transcribe_media_asset(asset, user=user)
+                except Exception:
+                    pass
+                finally:
+                    django.db.connection.close()
+
+            threading.Thread(target=_run, args=(media_asset.pk, request.user), daemon=True).start()
+            result['transcription_status'] = 'started'
 
         return Response(result, status=status.HTTP_201_CREATED)
 
@@ -830,20 +839,26 @@ class TranscribeMediaAssetAPI(APIView):
         if not has_minimum_role(request.user, media_asset.episode.show, Role.PRODUCER):
             return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
 
-        try:
-            transcript = transcription_svc.transcribe_media_asset(media_asset, user=request.user)
-        except Exception as exc:
-            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        import threading  # noqa: PLC0415
 
-        normalized = transcript.normalized_json or {}
-        return Response({
-            'transcript_id': str(transcript.id),
-            'revision': transcript.revision,
-            'provider': normalized.get('provider'),
-            'model': normalized.get('model'),
-            'duration_seconds': normalized.get('duration'),
-            'segment_count': len(normalized.get('segments', [])),
-        }, status=status.HTTP_201_CREATED)
+        def _run(asset_pk, user):
+            import django.db  # noqa: PLC0415
+            try:
+                asset = MediaAsset.objects.get(pk=asset_pk)
+                transcription_svc.transcribe_media_asset(asset, user=user)
+            except Exception:
+                pass
+            finally:
+                django.db.connection.close()
+
+        t = threading.Thread(target=_run, args=(media_asset.pk, request.user), daemon=True)
+        t.start()
+
+        return Response(
+            {'status': 'started', 'media_asset_id': str(media_asset.pk),
+             'message': 'Transcription started in background. Poll ingestion_status for completion.'},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 # =============================================================================

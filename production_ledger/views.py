@@ -929,6 +929,28 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
             asset_type=AssetType.VIDEO,
         ).order_by('-created_at')
 
+        # Only video assets with a directly-downloadable URL (no YouTube/Vimeo links)
+        from .services.audio_extraction import is_directly_downloadable  # noqa: PLC0415
+        context['extractable_video_assets'] = [
+            a for a in context['video_assets']
+            if a.external_url and is_directly_downloadable(a.external_url)
+        ]
+
+        # Auto-reset any assets that are stuck in PROCESSING/PENDING with a
+        # non-downloadable URL — they can never finish.
+        for asset in context['video_assets']:
+            if (
+                asset.ingestion_status in (IngestionStatus.PENDING, IngestionStatus.PROCESSING)
+                and asset.external_url
+                and not is_directly_downloadable(asset.external_url)
+            ):
+                asset.ingestion_status = IngestionStatus.FAILED
+                asset.error_message = (
+                    "Cannot extract audio from YouTube/Vimeo links. "
+                    "Upload the video file directly instead."
+                )
+                asset.save(update_fields=['ingestion_status', 'error_message'])
+
         # Assets currently being processed in background — page will auto-refresh
         context['processing_assets'] = list(
             episode.media_assets.filter(
@@ -1188,7 +1210,7 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
         if action == 'extract_audio_from_video':
-            from .services.audio_extraction import cleanup_work_dir, extract_audio_from_video  # noqa: PLC0415
+            from .services.audio_extraction import cleanup_work_dir, extract_audio_from_video, is_directly_downloadable  # noqa: PLC0415
             from .services.distribution import publish_episode_audio, build_and_publish_feed  # noqa: PLC0415
             import threading  # noqa: PLC0415
             import django  # noqa: PLC0415
@@ -1206,6 +1228,14 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
 
             if not video_asset.external_url:
                 messages.error(request, 'Video asset has no public URL.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            if not is_directly_downloadable(video_asset.external_url):
+                messages.error(
+                    request,
+                    'YouTube and Vimeo links cannot be downloaded for audio extraction. '
+                    'Upload the video file directly to the Media Library first, then extract from that.'
+                )
                 return redirect('production_ledger:episode_publish', pk=episode.pk)
 
             add_intro = request.POST.get('add_intro') == 'on'
@@ -1583,6 +1613,7 @@ class EpisodeTranscriptView(EpisodeTabMixin, TemplateView):
             return redirect('production_ledger:episode_transcript', pk=episode.pk)
 
         if action == 'auto_transcribe':
+            import threading  # noqa: PLC0415
             from .services import transcription as transcription_svc  # noqa: PLC0415
 
             media_asset = episode.media_assets.filter(
@@ -1592,11 +1623,20 @@ class EpisodeTranscriptView(EpisodeTabMixin, TemplateView):
                 messages.error(request, 'No media asset found. Upload audio/video in the Media tab first.')
                 return redirect('production_ledger:episode_transcript', pk=episode.pk)
 
-            try:
-                transcription_svc.transcribe_media_asset(media_asset, user=request.user)
-                messages.success(request, 'Transcript generated from latest uploaded media.')
-            except Exception as exc:
-                messages.error(request, f'Auto-transcription failed: {exc}')
+            def _run(asset_pk, user):
+                from .models import MediaAsset  # noqa: PLC0415
+                import django.db  # noqa: PLC0415
+                try:
+                    asset = MediaAsset.objects.get(pk=asset_pk)
+                    transcription_svc.transcribe_media_asset(asset, user=user)
+                except Exception:
+                    pass
+                finally:
+                    django.db.connection.close()
+
+            t = threading.Thread(target=_run, args=(media_asset.pk, request.user), daemon=True)
+            t.start()
+            messages.success(request, 'Transcription started in the background — refresh this page in a moment to see the result.')
             return redirect('production_ledger:episode_transcript', pk=episode.pk)
         
         # Determine which form was submitted
@@ -1659,6 +1699,7 @@ class EpisodeClipsView(EpisodeTabMixin, TemplateView):
             return redirect('production_ledger:episode_clips', pk=episode.pk)
 
         if action == 'auto_identify':
+            import threading  # noqa: PLC0415
             from .services import transcription as transcription_svc  # noqa: PLC0415
             from .services.shorts import identify_and_queue_shorts  # noqa: PLC0415
 
@@ -1670,12 +1711,32 @@ class EpisodeClipsView(EpisodeTabMixin, TemplateView):
                 if not media_asset:
                     messages.error(request, 'No transcript or media found. Upload media first.')
                     return redirect('production_ledger:episode_clips', pk=episode.pk)
-                try:
-                    transcript = transcription_svc.transcribe_media_asset(media_asset, user=request.user)
-                    messages.info(request, 'No transcript existed; generated one from latest media first.')
-                except Exception as exc:
-                    messages.error(request, f'Could not auto-generate transcript: {exc}')
-                    return redirect('production_ledger:episode_clips', pk=episode.pk)
+
+                def _transcribe_then_identify(asset_pk, ep_pk, aspect_ratio, max_clips, user):
+                    import django.db  # noqa: PLC0415
+                    from .models import MediaAsset, Episode  # noqa: PLC0415
+                    try:
+                        asset = MediaAsset.objects.get(pk=asset_pk)
+                        tr = transcription_svc.transcribe_media_asset(asset, user=user)
+                        ep = Episode.objects.get(pk=ep_pk)
+                        identify_and_queue_shorts(ep, transcript=tr, aspect_ratio=aspect_ratio,
+                                                  max_clips=max_clips, user=user)
+                    except Exception:
+                        pass
+                    finally:
+                        django.db.connection.close()
+
+                t = threading.Thread(
+                    target=_transcribe_then_identify,
+                    args=(media_asset.pk, episode.pk,
+                          request.POST.get('aspect_ratio', '9:16'),
+                          int(request.POST.get('max_clips', 5) or 5),
+                          request.user),
+                    daemon=True,
+                )
+                t.start()
+                messages.info(request, 'No transcript found — transcribing and identifying clips in the background. Refresh in a moment.')
+                return redirect('production_ledger:episode_clips', pk=episode.pk)
 
             try:
                 shorts = identify_and_queue_shorts(

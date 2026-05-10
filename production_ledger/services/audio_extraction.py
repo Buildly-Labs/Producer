@@ -151,12 +151,36 @@ def _require_ffmpeg():
         )
 
 
+_NON_DOWNLOADABLE_PATTERNS = (
+    "youtube.com/", "youtu.be/",
+    "vimeo.com/",
+)
+
+def is_directly_downloadable(url: str) -> bool:
+    """Return True if *url* is a direct media file URL that can be downloaded."""
+    url_lower = url.lower()
+    return not any(p in url_lower for p in _NON_DOWNLOADABLE_PATTERNS)
+
+
 def _download_video(url: str, work_dir: Path) -> Path:
     """Download video to work_dir, returning the local path."""
+    import urllib.request  # noqa: PLC0415
+
+    if not is_directly_downloadable(url):
+        raise RuntimeError(
+            f"Cannot download from {url!r} — YouTube and Vimeo links are not "
+            "directly downloadable. Upload the video file to DO Spaces first."
+        )
+
     ext = Path(url.split("?")[0]).suffix or ".mp4"
     dest = work_dir / f"video{ext}"
     logger.info("Downloading video from %s …", url)
-    urlretrieve(url, dest)  # noqa: S310 — URL validated by caller
+
+    # Download with a 30-minute timeout so the thread can't hang forever.
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=1800) as resp, open(dest, "wb") as f:  # noqa: S310
+        import shutil as _shutil  # noqa: PLC0415
+        _shutil.copyfileobj(resp, f)
     return dest
 
 

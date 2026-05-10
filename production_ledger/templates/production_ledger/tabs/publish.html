@@ -301,15 +301,16 @@
         </div>
         <div class="p-5">
             {% if can_publish %}
+            {% if extractable_video_assets %}
             <form method="post" class="space-y-4" id="extract-audio-form">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="extract_audio_from_video">
 
-                <!-- Asset selector -->
+                <!-- Asset selector — only directly-downloadable uploads, not YouTube/Vimeo links -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-2">Select source video</label>
                     <div class="space-y-2">
-                        {% for asset in video_assets %}
+                        {% for asset in extractable_video_assets %}
                         <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:border-indigo-400 cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
                             <input type="radio" name="video_asset_id" value="{{ asset.pk }}"
                                    class="mt-0.5 h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
@@ -317,7 +318,7 @@
                             <div class="flex-1 min-w-0">
                                 <span class="text-sm font-medium text-gray-900">{{ asset.label|default:asset.filename|default:"Unnamed video" }}</span>
                                 {% if asset.file_size %}<span class="ml-2 text-xs text-gray-400">{{ asset.file_size|filesizeformat }}</span>{% endif %}
-                                {% if asset.duration_seconds %}<span class="ml-2 text-xs text-gray-400">{{ asset.duration_seconds }}s</span>{% endif %}
+                                {% if asset.duration_seconds %}<span class="ml-2 text-xs text-gray-400">{{ asset.duration_seconds }}s }}</span>{% endif %}
                                 {% if asset.external_url %}<span class="text-xs text-gray-400 truncate block mt-0.5">{{ asset.external_url|truncatechars:70 }}</span>{% endif %}
                             </div>
                         </label>
@@ -336,6 +337,13 @@
                         </select>
                     </div>
                 </div>
+            {% else %}
+                <div class="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+                    No directly-downloadable video uploads are available for audio extraction.
+                    YouTube/Vimeo links cannot be used for this workflow.
+                    Upload the video file directly to the Media Library, then try again.
+                </div>
+            {% endif %}
 
                 <!-- ── Intro Studio ─────────────────────────────────── -->
                 <div class="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-3" id="intro-studio-root">

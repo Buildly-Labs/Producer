@@ -269,10 +269,12 @@ start_production() {
     log_info "Starting Gunicorn on ${HOST}:${PORT}..."
     
     WORKERS="${GUNICORN_WORKERS:-4}"
+    TIMEOUT="${GUNICORN_TIMEOUT:-120}"
     
     nohup gunicorn logic_service.wsgi:application \
         --bind "${HOST}:${PORT}" \
         --workers "$WORKERS" \
+        --timeout "$TIMEOUT" \
         --access-logfile "${PROJECT_ROOT}/logs/access.log" \
         --error-logfile "${PROJECT_ROOT}/logs/error.log" \
         --pid "$PID_FILE" \
