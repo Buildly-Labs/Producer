@@ -15,8 +15,12 @@
         <div class="flex-1">
             <p class="font-semibold text-amber-800">Audio extraction in progress</p>
             {% for a in processing_assets %}
-            <p class="text-amber-700 mt-0.5" id="job-label-{{ a.pk }}">{{ a.label }}</p>
-            {% endfor %}
+            <p class="text-slate-900 font-medium mt-0.5" id="job-label-{{ a.pk }}">{{ a.label }}</p>
+            <div class="mt-2 h-2 rounded-full bg-amber-100 overflow-hidden">
+                <div id="job-progress-{{ a.pk }}" class="h-full rounded-full bg-amber-500" style="width:0%"></div>
+            </div>
+            <p class="text-slate-700 text-xs mt-1" id="job-subtext-{{ a.pk }}">Starting…</p>
+        {% endfor %}
             <p class="text-amber-600 text-xs mt-1">This page will refresh automatically when done.</p>
         </div>
     </div>
@@ -26,6 +30,12 @@
         const STATUS_URL_TPL = "{% url 'production_ledger:api_media_status' pk='00000000-0000-0000-0000-000000000000' %}";
         const jobs = [{% for a in processing_assets %}{"pk":"{{ a.pk }}","status":"{{ a.ingestion_status }}"}{% if not forloop.last %},{% endif %}{% endfor %}];
 
+        function formatDuration(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
         async function checkJob(job) {
             try {
                 const url = STATUS_URL_TPL.replace(PLACEHOLDER, job.pk);
@@ -33,10 +43,41 @@
                 if (!r.ok) return job.status;
                 const d = await r.json();
                 const label = document.getElementById('job-label-' + job.pk);
-                if (label && d.label) label.textContent = d.label + (d.status === 'processing' ? ' — processing…' : '');
+                const progress = document.getElementById('job-progress-' + job.pk);
+                const subtext = document.getElementById('job-subtext-' + job.pk);
+
+                if (label && d.label) {
+                    label.textContent = d.label + (d.status === 'processing' ? ' — processing…' : '');
+                }
+
+                if (subtext) {
+                    if (d.status === 'processing' || d.status === 'pending') {
+                        const elapsed = d.elapsed_seconds || 0;
+                        const estimate = d.estimated_seconds || 180;
+                        subtext.textContent = `Elapsed ${formatDuration(elapsed)} · Estimated ${formatDuration(estimate)}`;
+                    } else if (d.status === 'ready') {
+                        subtext.textContent = 'Completed successfully.';
+                    } else if (d.status === 'failed') {
+                        subtext.textContent = d.error ? `Failed: ${d.error}` : 'Failed during extraction.';
+                    }
+                }
+
+                if (progress) {
+                    const estimate = d.estimated_seconds || 180;
+                    let pct = 0;
+                    if (d.status === 'ready' || d.status === 'failed') {
+                        pct = 100;
+                    } else {
+                        pct = Math.min(99, Math.round(((d.elapsed_seconds || 0) / estimate) * 100));
+                    }
+                    progress.style.width = `${pct}%`;
+                }
+
                 job.status = d.status;
                 return d.status;
-            } catch(e) { return job.status; }
+            } catch(e) {
+                return job.status;
+            }
         }
 
         async function poll() {
@@ -318,7 +359,7 @@
                             <div class="flex-1 min-w-0">
                                 <span class="text-sm font-medium text-gray-900">{{ asset.label|default:asset.filename|default:"Unnamed video" }}</span>
                                 {% if asset.file_size %}<span class="ml-2 text-xs text-gray-400">{{ asset.file_size|filesizeformat }}</span>{% endif %}
-                                {% if asset.duration_seconds %}<span class="ml-2 text-xs text-gray-400">{{ asset.duration_seconds }}s }}</span>{% endif %}
+                                {% if asset.duration_seconds %}<span class="ml-2 text-xs text-gray-400">{{ asset.duration_seconds }}s</span>{% endif %}
                                 {% if asset.external_url %}<span class="text-xs text-gray-400 truncate block mt-0.5">{{ asset.external_url|truncatechars:70 }}</span>{% endif %}
                             </div>
                         </label>
@@ -337,13 +378,7 @@
                         </select>
                     </div>
                 </div>
-            {% else %}
-                <div class="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
-                    No directly-downloadable video uploads are available for audio extraction.
-                    YouTube/Vimeo links cannot be used for this workflow.
-                    Upload the video file directly to the Media Library, then try again.
                 </div>
-            {% endif %}
 
                 <!-- ── Intro Studio ─────────────────────────────────── -->
                 <div class="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-3" id="intro-studio-root">
@@ -483,6 +518,13 @@
                     <p class="text-xs text-gray-400">Downloads the video, strips audio, optionally adds an intro, and publishes to all podcast platforms. Large files may take a minute.</p>
                 </div>
             </form>
+            {% else %}
+                <div class="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+                    No directly-downloadable video uploads are available for audio extraction.
+                    YouTube/Vimeo links cannot be used for this workflow.
+                    Upload the video file directly to the Media Library, then try again.
+                </div>
+            {% endif %}
 
             {# ── Intro Studio JS ──────────────────────────────────────────── #}
             <script>

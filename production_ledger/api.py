@@ -336,6 +336,25 @@ class MediaAssetDetailAPI(OrganizationScopedMixin, generics.RetrieveUpdateDestro
     permission_classes = [IsAuthenticated]
 
 
+def _estimate_media_asset_time(asset: MediaAsset) -> int:
+    """Estimate how long audio extraction is likely to take in seconds."""
+    if asset.duration_seconds and asset.duration_seconds > 0:
+        # Allow around 1.5x duration for extraction + optional intro synthesis.
+        return min(max(120, int(asset.duration_seconds * 1.5)), 900)
+
+    if asset.file_size and asset.file_size > 0:
+        size_mb = asset.file_size / (1024 * 1024)
+        if size_mb <= 50:
+            return 120
+        if size_mb <= 150:
+            return 180
+        if size_mb <= 400:
+            return 300
+        return 420
+
+    return 180
+
+
 class MediaAssetStatusAPI(APIView):
     """
     GET /api/media/<pk>/status/
@@ -353,12 +372,16 @@ class MediaAssetStatusAPI(APIView):
         org_uuid = get_user_organization_uuid(request.user)
         if org_uuid and str(asset.organization_uuid) != str(org_uuid):
             raise PermissionDenied
+        elapsed_seconds = int((timezone.now() - asset.created_at).total_seconds())
+        estimated_seconds = _estimate_media_asset_time(asset)
         return Response({
             'status': asset.ingestion_status,
             'label': asset.label,
             'error': asset.error_message or None,
             'duration_seconds': asset.duration_seconds,
             'external_url': asset.external_url,
+            'elapsed_seconds': elapsed_seconds,
+            'estimated_seconds': estimated_seconds,
         })
 
 
