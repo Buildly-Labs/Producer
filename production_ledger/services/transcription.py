@@ -75,6 +75,14 @@ def _build_raw_text(normalized: dict) -> str:
     return "\n".join(s["text"] for s in normalized.get("segments", []) if s.get("text"))
 
 
+def is_directly_downloadable(url: str | None) -> bool:
+    """Return True for direct media URLs that can be downloaded without page scraping."""
+    if not url:
+        return False
+    url_lower = url.lower()
+    return not any(p in url_lower for p in ["youtube.com/", "youtu.be/", "vimeo.com/"])
+
+
 def _overall_confidence(normalized: dict) -> Optional[float]:
     """Average confidence across segments (returns None if no data)."""
     scores = [s["confidence"] for s in normalized.get("segments", []) if s.get("confidence") is not None]
@@ -243,10 +251,18 @@ def transcribe_media_asset(media_asset, user=None):
                 own_temp = False
             elif media_asset.external_url:
                 # Download from URL (DO Spaces or other)
+                if not is_directly_downloadable(media_asset.external_url):
+                    raise RuntimeError(
+                        "Cannot transcribe from non-direct streaming URLs like YouTube/Vimeo. "
+                        "Upload the video/audio file directly or use a direct media URL."
+                    )
                 import urllib.request  # noqa: PLC0415
                 ext = os.path.splitext(media_asset.external_url.split("?")[0])[-1] or ".mp4"
                 media_path = os.path.join(tmp_dir, f"source{ext}")
-                urllib.request.urlretrieve(media_asset.external_url, media_path)  # noqa: S310
+                req = urllib.request.Request(media_asset.external_url, headers={"User-Agent": "Mozilla/5.0"})  # noqa: S310
+                with urllib.request.urlopen(req, timeout=1800) as resp, open(media_path, "wb") as out_file:  # noqa: S310
+                    import shutil as _shutil  # noqa: PLC0415
+                    _shutil.copyfileobj(resp, out_file)
                 own_temp = True
             else:
                 raise RuntimeError("MediaAsset has neither a file nor an external_url.")

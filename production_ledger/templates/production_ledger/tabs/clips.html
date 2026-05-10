@@ -352,9 +352,19 @@ function shortsManager(identifyUrl, renderAllUrl, csrfToken) {
                     headers: {'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken},
                     body: JSON.stringify({aspect_ratio: this.identifyAspect, max_clips: this.identifyCount}),
                 });
-                const d = await r.json();
+                let d;
+                try {
+                    d = await r.json();
+                } catch (_) {
+                    const text = await r.text();
+                    throw new Error(text.trim().slice(0, 500) || 'Identification failed with a non-JSON response.');
+                }
+                if (r.status === 202) {
+                    this.identifySuccess = d.message || 'Transcription and short identification started in the background. Refresh when complete.';
+                    return;
+                }
                 if (!r.ok) throw new Error(d.error || 'Identification failed.');
-                this.identifySuccess = `AI identified ${d.count} short${d.count !== 1 ? 's' : ''}! Refreshing\u2026`;
+                this.identifySuccess = `AI identified ${d.count} short${d.count !== 1 ? 's' : ''}! Refreshing…`;
                 setTimeout(() => location.reload(), 1800);
             } catch (e) {
                 this.identifyError = e.message;
@@ -376,7 +386,13 @@ function shortsManager(identifyUrl, renderAllUrl, csrfToken) {
                     headers: {'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken},
                     body: '{}',
                 });
-                const d = await r.json();
+                let d;
+                try {
+                    d = await r.json();
+                } catch (_) {
+                    const text = await r.text();
+                    throw new Error(text.trim().slice(0, 500) || 'Render all failed with a non-JSON response.');
+                }
                 if (!r.ok) throw new Error(d.error || 'Render all failed.');
                 const failed = (d.results || []).filter(x => x.status === 'failed');
                 if (failed.length) {
@@ -413,7 +429,13 @@ function shortCard(shortId, initialStatus, initialUrl, renderUrl, csrfToken) {
                     headers: {'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken},
                     body: '{}',
                 });
-                const d = await r.json();
+                let d;
+                try {
+                    d = await r.json();
+                } catch (_) {
+                    const text = await r.text();
+                    throw new Error(text.trim().slice(0, 500) || 'Render failed with a non-JSON response.');
+                }
                 if (!r.ok) throw new Error(d.error || 'Render failed.');
                 this.cardStatus = d.status;
                 this.cardUrl = d.public_url || '';

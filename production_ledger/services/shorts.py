@@ -380,9 +380,9 @@ def identify_and_queue_shorts(
     if transcript is None:
         # No transcript yet — auto-transcribe the best available media asset.
         from ..constants import AssetType, IngestionStatus  # noqa: PLC0415
-        from .transcription import transcribe_media_asset  # noqa: PLC0415
+        from .transcription import is_directly_downloadable, transcribe_media_asset  # noqa: PLC0415
 
-        media_asset = (
+        candidates = (
             episode.media_assets
             .filter(asset_type__in=[AssetType.VIDEO, AssetType.AUDIO])
             .exclude(ingestion_status=IngestionStatus.FAILED)
@@ -396,12 +396,18 @@ def identify_and_queue_shorts(
                 ),
                 "-created_at",
             )
-            .first()
         )
+
+        media_asset = None
+        for candidate in candidates:
+            if candidate.file or is_directly_downloadable(candidate.external_url):
+                media_asset = candidate
+                break
+
         if media_asset is None:
             raise RuntimeError(
-                f"Episode '{episode.title}' has no media assets and no transcript. "
-                "Upload a video or audio file first."
+                f"Episode '{episode.title}' has no directly-downloadable media asset and no transcript. "
+                "Upload the video/audio file directly or add a transcript manually."
             )
 
         logger.info(

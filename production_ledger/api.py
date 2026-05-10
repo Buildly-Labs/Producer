@@ -1214,6 +1214,49 @@ class IdentifyShortsAPI(APIView):
         if transcript_id:
             transcript = get_object_or_404(Transcript, pk=transcript_id, episode=episode)
 
+        if transcript is None:
+            # Defer long-running auto-transcription + short identification
+            # to a background thread so the browser does not time out.
+            import threading  # noqa: PLC0415
+            import django.db  # noqa: PLC0415
+            from django.contrib.auth import get_user_model  # noqa: PLC0415
+            from .models import Episode as _Episode  # noqa: PLC0415
+
+            def _run_background(ep_pk, user_pk, aspect_ratio, max_clips):
+                import logging  # noqa: PLC0415
+                logger = logging.getLogger(__name__)
+                try:
+                    User = get_user_model()
+                    user = User.objects.get(pk=user_pk)
+                    ep = _Episode.objects.get(pk=ep_pk)
+                    identify_and_queue_shorts(
+                        ep,
+                        transcript=None,
+                        aspect_ratio=aspect_ratio,
+                        max_clips=max_clips,
+                        user=user,
+                    )
+                except Exception:
+                    logger.exception(
+                        'Background short identification failed for episode %s', ep_pk
+                    )
+                finally:
+                    django.db.connections.close_all()
+
+            thread = threading.Thread(
+                target=_run_background,
+                args=(str(episode.pk), request.user.pk, aspect_ratio, max_clips),
+                daemon=True,
+            )
+            thread.start()
+            return Response(
+                {
+                    'status': 'started',
+                    'message': 'Transcript generation and short identification have started in the background. Refresh the page when it completes.',
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
         try:
             video_shorts = identify_and_queue_shorts(
                 episode,
