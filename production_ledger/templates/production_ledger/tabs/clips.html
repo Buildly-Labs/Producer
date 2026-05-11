@@ -3,6 +3,58 @@
 {% block tab_content %}
 <div class="space-y-8" x-data="shortsManager('{% url 'production_ledger:api_shorts_identify' episode_id=episode.pk %}', '{% url 'production_ledger:api_shorts_render_all' episode_id=episode.pk %}', '{{ csrf_token }}')">
 
+    {% if running_identify_task %}
+    <!-- ═══════════════════════════════════════════
+         BACKGROUND IDENTIFICATION BANNER
+    ═══════════════════════════════════════════ -->
+    <div id="identify-banner" class="flex items-start gap-3 p-4 bg-indigo-950/40 border border-indigo-700 rounded-xl text-sm">
+        <svg id="identify-banner-icon" class="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <div class="flex-1">
+            <p class="font-semibold text-indigo-300">Clip identification in progress</p>
+            <p class="text-slate-300 text-xs mt-0.5" id="identify-banner-label">{{ running_identify_task.label }}</p>
+            <p class="text-slate-400 text-xs mt-1" id="identify-banner-subtext">AI is analyzing your transcript for engaging moments…</p>
+            <p class="text-indigo-400 text-xs mt-1">You can leave this page — the clips will appear when you return.</p>
+        </div>
+    </div>
+    <script>
+    (function() {
+        const PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+        const STATUS_URL = "{% url 'production_ledger:api_task_status' pk='00000000-0000-0000-0000-000000000000' %}".replace(PLACEHOLDER, '{{ running_identify_task.pk }}');
+
+        async function pollIdentify() {
+            try {
+                const r = await fetch(STATUS_URL, {credentials: 'same-origin'});
+                if (!r.ok) { setTimeout(pollIdentify, 5000); return; }
+                const d = await r.json();
+                const labelEl = document.getElementById('identify-banner-label');
+                const subtextEl = document.getElementById('identify-banner-subtext');
+                const iconEl = document.getElementById('identify-banner-icon');
+                const bannerEl = document.getElementById('identify-banner');
+                if (labelEl && d.label) labelEl.textContent = d.label;
+                if (d.status === 'completed') {
+                    if (subtextEl) subtextEl.textContent = 'Done! Loading your clips…';
+                    if (iconEl) { iconEl.classList.remove('animate-spin', 'text-indigo-400'); iconEl.classList.add('text-green-400'); }
+                    setTimeout(() => window.location.reload(), 800);
+                    return;
+                } else if (d.status === 'failed' || d.status === 'timeout') {
+                    if (subtextEl) subtextEl.textContent = 'Failed: ' + (d.error_message || 'Unknown error. Check with your admin.');
+                    if (iconEl) { iconEl.classList.remove('animate-spin', 'text-indigo-400'); iconEl.classList.add('text-red-400'); }
+                    if (bannerEl) { bannerEl.classList.remove('bg-indigo-950/40', 'border-indigo-700'); bannerEl.classList.add('bg-red-950/40', 'border-red-700'); }
+                    return;
+                }
+                if (!d.is_terminal) setTimeout(pollIdentify, 4000);
+            } catch(e) {
+                setTimeout(pollIdentify, 6000);
+            }
+        }
+        setTimeout(pollIdentify, 4000);
+    })();
+    </script>
+    {% endif %}
+
     <!-- ═══════════════════════════════════════════
          SECTION 1 — AI SHORT IDENTIFICATION
     ═══════════════════════════════════════════ -->
@@ -330,21 +382,13 @@ function shortsManager(identifyUrl, renderAllUrl, csrfToken) {
         identifySuccess: '',
         renderingAll: false,
         renderAllError: '',
+        _identifyPollTimer: null,
 
         async identifyShorts() {
             this.identifying = true;
-            this.identifyLabel = 'Starting\u2026';
+            this.identifyLabel = 'Starting…';
             this.identifyError = '';
             this.identifySuccess = '';
-
-            // After 3s without a response assume transcription is running
-            const transcribeHint = setTimeout(() => {
-                if (this.identifying) this.identifyLabel = 'Transcribing video\u2026';
-            }, 3000);
-            // After 30s switch to AI identifying label
-            const identifyHint = setTimeout(() => {
-                if (this.identifying) this.identifyLabel = 'AI identifying clips\u2026';
-            }, 30000);
 
             try {
                 const r = await fetch(this.identifyUrl, {
@@ -360,20 +404,66 @@ function shortsManager(identifyUrl, renderAllUrl, csrfToken) {
                     throw new Error(text.trim().slice(0, 500) || 'Identification failed with a non-JSON response.');
                 }
                 if (r.status === 202) {
-                    this.identifySuccess = d.message || 'Transcription and short identification started in the background. Refresh when complete.';
-                    return;
+                    // Background job started — poll until complete
+                    const taskId = d.task_id;
+                    this.identifyLabel = 'Analyzing transcript…';
+                    if (taskId) {
+                        this._pollIdentifyTask(taskId);
+                    } else {
+                        // No task_id (shouldn't happen) — keep spinner, let the
+                        // server-rendered banner handle it on next page load
+                        this.identifyLabel = 'Running in background…';
+                    }
+                    return; // keep identifying=true / button spinning
                 }
                 if (!r.ok) throw new Error(d.error || 'Identification failed.');
-                this.identifySuccess = `AI identified ${d.count} short${d.count !== 1 ? 's' : ''}! Refreshing…`;
+                this.identifySuccess = `AI identified ${d.count} short${d.count !== 1 ? 's' : ''}! Reloading…`;
                 setTimeout(() => location.reload(), 1800);
             } catch (e) {
                 this.identifyError = e.message;
-            } finally {
-                clearTimeout(transcribeHint);
-                clearTimeout(identifyHint);
                 this.identifying = false;
                 this.identifyLabel = 'Identify Shorts';
             }
+        },
+
+        async _pollIdentifyTask(taskId) {
+            const PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+            const base = "{% url 'production_ledger:api_task_status' pk='00000000-0000-0000-0000-000000000000' %}";
+            const url = base.replace(PLACEHOLDER, taskId);
+            const labels = ['Analyzing transcript…', 'Finding key moments…', 'Writing captions…', 'Almost done…'];
+            let labelIdx = 0;
+            const self = this;
+
+            const advance = () => {
+                labelIdx = Math.min(labelIdx + 1, labels.length - 1);
+                self.identifyLabel = labels[labelIdx];
+            };
+            const hintTimer = setInterval(advance, 15000);
+
+            const poll = async () => {
+                try {
+                    const r = await fetch(url, {credentials: 'same-origin'});
+                    if (!r.ok) { self._identifyPollTimer = setTimeout(poll, 5000); return; }
+                    const d = await r.json();
+                    if (d.status === 'completed') {
+                        clearInterval(hintTimer);
+                        self.identifySuccess = 'Clips identified! Reloading…';
+                        self.identifying = false;
+                        self.identifyLabel = 'Identify Shorts';
+                        setTimeout(() => location.reload(), 800);
+                    } else if (d.status === 'failed' || d.status === 'timeout') {
+                        clearInterval(hintTimer);
+                        self.identifyError = d.error_message || 'Identification failed. Please try again.';
+                        self.identifying = false;
+                        self.identifyLabel = 'Identify Shorts';
+                    } else {
+                        self._identifyPollTimer = setTimeout(poll, 4000);
+                    }
+                } catch(e) {
+                    self._identifyPollTimer = setTimeout(poll, 6000);
+                }
+            };
+            poll();
         },
 
         async renderAll() {

@@ -181,6 +181,7 @@
     <button onclick="this.parentElement.remove()" class="ml-auto text-amber-400 hover:text-amber-200 text-lg leading-none">&times;</button>
 </div>
 <script>
+var ACTIVE_TAB = '{{ active_tab }}';
 (function () {
     'use strict';
     const EPISODE_ID = '{{ episode.pk }}';
@@ -222,6 +223,10 @@
                     var label = task.label || taskTypeLabel(task.task_type);
                     if (task.status === 'completed' && prev && prev !== 'completed') {
                         showToast('&#10003; ' + label + ' completed.', 'success');
+                        // Auto-reload the clips tab when identification finishes
+                        if (task.task_type === 'short_identify' && ACTIVE_TAB === 'clips') {
+                            setTimeout(function () { window.location.reload(); }, 1200);
+                        }
                     } else if (task.status === 'failed' && prev !== 'failed') {
                         showToast('&#10007; ' + label + ' failed: ' + (task.error_message || 'Unknown error'), 'error');
                     } else if (task.status === 'timeout' && prev !== 'timeout') {

@@ -1294,7 +1294,7 @@ class IdentifyShortsAPI(APIView):
                 {
                     'status': 'started',
                     'task_id': str(bg_task.pk),
-                    'message': 'Short identification started in the background. Poll /api/tasks/<task_id>/ for status.',
+                    'message': 'Clip identification is running in the background. You can leave this page — the results will appear when you return.',
                 },
                 status=status.HTTP_202_ACCEPTED,
             )

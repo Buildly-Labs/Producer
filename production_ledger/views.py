@@ -69,6 +69,7 @@ from .forms import (
 )
 from .models import (
     AIArtifact,
+    BackgroundTask,
     ChecklistItem,
     ClipMoment,
     Episode,
@@ -1750,6 +1751,14 @@ class EpisodeClipsView(EpisodeTabMixin, TemplateView):
         context['latest_transcript'] = episode.transcripts.order_by('-revision').first()
         context['clip_form'] = ClipMomentForm()
         context['priorities'] = ClipPriority.CHOICES
+        # Running identification task — used to render the progress banner
+        context['running_identify_task'] = (
+            BackgroundTask.objects.filter(
+                episode=episode,
+                task_type=BackgroundTask.TASK_SHORT_IDENTIFY,
+                status__in=[BackgroundTask.STATUS_PENDING, BackgroundTask.STATUS_RUNNING],
+            ).order_by('-created_at').first()
+        )
         return context
     
     def post(self, request, *args, **kwargs):

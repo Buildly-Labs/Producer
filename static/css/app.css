@@ -359,6 +359,14 @@ body {
   margin: 0 auto;
 }
 
+.app-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+  font-size: 0.75rem;
+  color: var(--text-muted, #64748b);
+  text-align: center;
+}
+
 /* Background gradient effect */
 .bg-gradient-ember {
   background-image: radial-gradient(ellipse at top, rgba(249, 115, 22, 0.15) 0%, transparent 50%);
