@@ -4,66 +4,66 @@
 <!-- Overview is the default content in episode_detail.html -->
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <div>
-        <h3 class="text-lg font-medium text-gray-900 mb-4">Episode Details</h3>
+        <h3 class="text-lg font-medium text-slate-100 mb-4">Episode Details</h3>
         <dl class="space-y-2">
             <div class="flex">
-                <dt class="w-32 text-sm text-gray-500">Type:</dt>
-                <dd class="text-sm text-gray-900">{{ episode.episode_type.name|default:'—' }}</dd>
+                <dt class="w-32 text-sm text-slate-500">Type:</dt>
+                <dd class="text-sm text-slate-200">{{ episode.episode_type.name|default:'—' }}</dd>
             </div>
             <div class="flex">
-                <dt class="w-32 text-sm text-gray-500">Recording:</dt>
-                <dd class="text-sm text-gray-900">{{ episode.get_recording_context_display }}</dd>
+                <dt class="w-32 text-sm text-slate-500">Recording:</dt>
+                <dd class="text-sm text-slate-200">{{ episode.get_recording_context_display }}</dd>
             </div>
             <div class="flex">
-                <dt class="w-32 text-sm text-gray-500">Target:</dt>
-                <dd class="text-sm text-gray-900">{{ episode.target_minutes }} minutes</dd>
+                <dt class="w-32 text-sm text-slate-500">Target:</dt>
+                <dd class="text-sm text-slate-200">{{ episode.target_minutes }} minutes</dd>
             </div>
             {% if episode.scheduled_for %}
             <div class="flex">
-                <dt class="w-32 text-sm text-gray-500">Scheduled:</dt>
-                <dd class="text-sm text-gray-900">{{ episode.scheduled_for|date:"M d, Y H:i" }}</dd>
+                <dt class="w-32 text-sm text-slate-500">Scheduled:</dt>
+                <dd class="text-sm text-slate-200">{{ episode.scheduled_for|date:"M d, Y H:i" }}</dd>
             </div>
             {% endif %}
             {% if episode.publish_date %}
             <div class="flex">
-                <dt class="w-32 text-sm text-gray-500">Publish Date:</dt>
-                <dd class="text-sm text-gray-900">{{ episode.publish_date|date:"M d, Y" }}</dd>
+                <dt class="w-32 text-sm text-slate-500">Publish Date:</dt>
+                <dd class="text-sm text-slate-200">{{ episode.publish_date|date:"M d, Y" }}</dd>
             </div>
             {% endif %}
         </dl>
 
         {% if episode.summary %}
         <div class="mt-6">
-            <h4 class="text-sm font-medium text-gray-500 mb-2">Summary</h4>
-            <p class="text-sm text-gray-700">{{ episode.summary }}</p>
+            <h4 class="text-sm font-medium text-slate-500 mb-2">Summary</h4>
+            <p class="text-sm text-slate-300">{{ episode.summary }}</p>
         </div>
         {% endif %}
     </div>
     
     <div>
-        <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Stats</h3>
+        <h3 class="text-lg font-medium text-slate-100 mb-4">Quick Stats</h3>
         <div class="grid grid-cols-2 gap-4">
-            <div class="bg-gray-50 rounded-lg p-4">
-                <div class="text-2xl font-bold text-gray-900">{{ episode.segments.count }}</div>
-                <div class="text-sm text-gray-500">Segments</div>
+            <div class="bg-[var(--bg-surface)] rounded-lg p-4">
+                <div class="text-2xl font-bold text-slate-100">{{ episode.segments.count }}</div>
+                <div class="text-sm text-slate-400">Segments</div>
             </div>
-            <div class="bg-gray-50 rounded-lg p-4">
-                <div class="text-2xl font-bold text-gray-900">{{ episode.episode_guests.count }}</div>
-                <div class="text-sm text-gray-500">Guests</div>
+            <div class="bg-[var(--bg-surface)] rounded-lg p-4">
+                <div class="text-2xl font-bold text-slate-100">{{ episode.episode_guests.count }}</div>
+                <div class="text-sm text-slate-400">Guests</div>
             </div>
-            <div class="bg-gray-50 rounded-lg p-4">
-                <div class="text-2xl font-bold text-gray-900">{{ episode.clip_moments.count }}</div>
-                <div class="text-sm text-gray-500">Clips</div>
+            <div class="bg-[var(--bg-surface)] rounded-lg p-4">
+                <div class="text-2xl font-bold text-slate-100">{{ episode.clip_moments.count }}</div>
+                <div class="text-sm text-slate-400">Clips</div>
             </div>
-            <div class="bg-gray-50 rounded-lg p-4">
-                <div class="text-2xl font-bold text-gray-900">{{ episode.ai_artifacts.count }}</div>
-                <div class="text-sm text-gray-500">AI Drafts</div>
+            <div class="bg-[var(--bg-surface)] rounded-lg p-4">
+                <div class="text-2xl font-bold text-slate-100">{{ episode.ai_artifacts.count }}</div>
+                <div class="text-sm text-slate-400">AI Drafts</div>
             </div>
         </div>
 
         <!-- Checklist Summary -->
         <div class="mt-6">
-            <h4 class="text-sm font-medium text-gray-500 mb-2">Checklist Status</h4>
+            <h4 class="text-sm font-medium text-slate-500 mb-2">Checklist Status</h4>
             {% if checklist_complete %}
             <div class="flex items-center text-green-600">
                 <span class="mr-2">✓</span>
@@ -75,20 +75,20 @@
                 <span>{{ checklist_remaining }} items remaining</span>
             </div>
             {% endif %}
-            <a href="{% url 'production_ledger:episode_checklist' episode.pk %}" class="text-sm text-blue-600 hover:text-blue-800">View Checklist →</a>
+            <a href="{% url 'production_ledger:episode_checklist' episode.pk %}" class="text-sm text-blue-400 hover:text-blue-300">View Checklist →</a>
         </div>
     </div>
 </div>
 
 <!-- Guests Preview -->
 {% if episode.episode_guests.exists %}
-<div class="mt-8 pt-6 border-t border-gray-200">
-    <h3 class="text-lg font-medium text-gray-900 mb-4">Guests</h3>
+<div class="mt-8 pt-6 border-t border-[var(--border-default)]">
+    <h3 class="text-lg font-medium text-slate-100 mb-4">Guests</h3>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {% for eg in episode.episode_guests.all|slice:":3" %}
-        <div class="bg-gray-50 rounded-lg p-4">
-            <div class="font-medium text-gray-900">{{ eg.guest.name }}</div>
-            <div class="text-sm text-gray-500">
+        <div class="bg-[var(--bg-surface)] rounded-lg p-4">
+            <div class="font-medium text-slate-100">{{ eg.guest.name }}</div>
+            <div class="text-sm text-slate-400">
                 {{ eg.get_role_display }}
                 {% if eg.guest.org %}• {{ eg.guest.org }}{% endif %}
             </div>
@@ -96,7 +96,7 @@
         {% endfor %}
     </div>
     {% if episode.episode_guests.count > 3 %}
-    <a href="{% url 'production_ledger:episode_guests' episode.pk %}" class="mt-2 inline-block text-sm text-blue-600 hover:text-blue-800">
+    <a href="{% url 'production_ledger:episode_guests' episode.pk %}" class="mt-2 inline-block text-sm text-blue-400 hover:text-blue-300">
         + {{ episode.episode_guests.count|add:"-3" }} more guests
     </a>
     {% endif %}

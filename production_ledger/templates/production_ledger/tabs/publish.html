@@ -7,21 +7,21 @@
     <!-- ═══════════════════════════════════════════
          PROCESSING BANNER
     ═══════════════════════════════════════════ -->
-    <div id="processing-banner" class="flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-xl text-sm">
-        <svg class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5 animate-spin" fill="none" viewBox="0 0 24 24">
+    <div id="processing-banner" class="flex items-start gap-3 p-4 bg-amber-950/40 border border-amber-700 rounded-xl text-sm">
+        <svg class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
         </svg>
         <div class="flex-1">
-            <p class="font-semibold text-amber-800">Audio extraction in progress</p>
+            <p class="font-semibold text-amber-300">Audio extraction in progress</p>
             {% for a in processing_assets %}
-            <p class="text-slate-900 font-medium mt-0.5" id="job-label-{{ a.pk }}">{{ a.label }}</p>
-            <div class="mt-2 h-2 rounded-full bg-amber-100 overflow-hidden">
+            <p class="text-slate-200 font-medium mt-0.5" id="job-label-{{ a.pk }}">{{ a.label }}</p>
+            <div class="mt-2 h-2 rounded-full bg-amber-900/60 overflow-hidden">
                 <div id="job-progress-{{ a.pk }}" class="h-full rounded-full bg-amber-500" style="width:0%"></div>
             </div>
-            <p class="text-slate-700 text-xs mt-1" id="job-subtext-{{ a.pk }}">Starting…</p>
+            <p class="text-slate-400 text-xs mt-1" id="job-subtext-{{ a.pk }}">Starting…</p>
         {% endfor %}
-            <p class="text-amber-600 text-xs mt-1">This page will refresh automatically when done.</p>
+            <p class="text-amber-400 text-xs mt-1">This page will refresh automatically when done.</p>
         </div>
     </div>
     <script>
@@ -97,30 +97,30 @@
     <!-- ═══════════════════════════════════════════
          STATUS BAR
     ═══════════════════════════════════════════ -->
-    <div class="flex flex-wrap items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200 text-sm">
+    <div class="flex flex-wrap items-center gap-3 p-4 bg-[var(--bg-surface)] rounded-xl border border-[var(--border-default)] text-sm">
         <div class="flex items-center gap-2">
-            <span class="text-gray-500">Status:</span>
-            <span class="font-semibold text-gray-900">{{ episode.get_status_display }}</span>
+            <span class="text-slate-400">Status:</span>
+            <span class="font-semibold text-slate-100">{{ episode.get_status_display }}</span>
         </div>
-        <div class="w-px h-4 bg-gray-300"></div>
+        <div class="w-px h-4 bg-slate-600"></div>
         <div class="flex items-center gap-2">
-            <span class="text-gray-500">Checklist:</span>
+            <span class="text-slate-400">Checklist:</span>
             {% if episode.is_checklist_complete %}
-            <span class="inline-flex items-center gap-1 text-green-700 font-medium"><svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>Complete</span>
+            <span class="inline-flex items-center gap-1 text-green-400 font-medium"><svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>Complete</span>
             {% else %}
-            <span class="text-amber-700 font-medium">Incomplete</span>
+            <span class="text-amber-400 font-medium">Incomplete</span>
             {% endif %}
         </div>
-        <div class="w-px h-4 bg-gray-300"></div>
+        <div class="w-px h-4 bg-slate-600"></div>
         <div class="flex items-center gap-2">
-            <span class="text-gray-500">RSS Feed:</span>
+            <span class="text-slate-400">RSS Feed:</span>
             {% if podcast_feed_config and podcast_feed_config.feed_public_url %}
-            <a href="{{ podcast_feed_config.feed_public_url }}" target="_blank" rel="noopener" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1">
+            <a href="{{ podcast_feed_config.feed_public_url }}" target="_blank" rel="noopener" class="text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 5c7.18 0 13 5.82 13 13M6 11a7 7 0 017 7M6 17a1 1 0 110-2 1 1 0 010 2z"/></svg>
                 Live
             </a>
             {% else %}
-            <span class="text-gray-400">Not configured</span>
+            <span class="text-slate-500">Not configured</span>
             {% endif %}
         </div>
         {% if can_mark_published %}
@@ -133,14 +133,14 @@
     <!-- ═══════════════════════════════════════════
          SECTION 1 — PUBLISH AUDIO
     ═══════════════════════════════════════════ -->
-    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div class="px-5 py-4 bg-gray-50 border-b border-gray-200 flex items-center gap-3">
-            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                <svg class="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+    <div class="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl overflow-hidden">
+        <div class="px-5 py-4 bg-[var(--bg-surface)] border-b border-[var(--border-default)] flex items-center gap-3">
+            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-900/40 flex items-center justify-center">
+                <svg class="w-4 h-4 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
             </div>
             <div>
-                <h3 class="font-semibold text-gray-900">Publish Episode Audio</h3>
-                <p class="text-xs text-gray-500 mt-0.5">Distributes audio to all podcast platforms via RSS feed</p>
+                <h3 class="font-semibold text-slate-100">Publish Episode Audio</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Distributes audio to all podcast platforms via RSS feed</p>
             </div>
         </div>
         <div class="p-5 space-y-5">
@@ -149,44 +149,44 @@
             {% if audio_assets %}
             <!-- Pick from existing assets -->
             <div>
-                <h4 class="text-sm font-semibold text-gray-800 mb-3">Use an existing asset from the Media Library</h4>
+                <h4 class="text-sm font-semibold text-slate-200 mb-3">Use an existing asset from the Media Library</h4>
                 <form method="post" class="space-y-3">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="publish_audio_from_asset">
                     <div class="space-y-2">
                         {% for asset in audio_assets %}
-                        <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:border-blue-400 hover:bg-blue-50 cursor-pointer has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                        <label class="flex items-start gap-3 p-3 rounded-lg border border-[var(--border-default)] hover:border-blue-500 cursor-pointer has-[:checked]:border-blue-500 has-[:checked]:bg-blue-900/20">
                             <input type="radio" name="audio_asset_id" value="{{ asset.pk }}"
-                                   class="mt-0.5 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                   class="mt-0.5 h-4 w-4 text-blue-500 border-slate-600 focus:ring-blue-500"
                                    {% if forloop.first %}checked{% endif %}>
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="text-sm font-medium text-gray-900">{{ asset.label|default:asset.filename|default:"Unnamed audio" }}</span>
-                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">{{ asset.get_asset_type_display }}</span>
+                                    <span class="text-sm font-medium text-slate-200">{{ asset.label|default:asset.filename|default:"Unnamed audio" }}</span>
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-900/40 text-blue-300">{{ asset.get_asset_type_display }}</span>
                                     {% if asset.duration_seconds %}
-                                    <span class="text-xs text-gray-400">{{ asset.duration_seconds }}s</span>
+                                    <span class="text-xs text-slate-500">{{ asset.duration_seconds }}s</span>
                                     {% endif %}
                                 </div>
-                                <p class="text-xs text-gray-400 mt-0.5 truncate">{{ asset.external_url|default:asset.filename }}</p>
+                                <p class="text-xs text-slate-500 mt-0.5 truncate">{{ asset.external_url|default:asset.filename }}</p>
                             </div>
                         </label>
                         {% endfor %}
                     </div>
                     <!-- Platform selector -->
                     <div>
-                        <p class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">Publish to platforms</p>
+                        <p class="text-xs font-semibold text-slate-300 mb-2 uppercase tracking-wide">Publish to platforms</p>
                         <div class="flex flex-wrap gap-2">
                             {% for row in platform_rows %}
                             <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer select-none">
                                 <input type="checkbox" name="platforms" value="{{ row.code }}"
-                                       class="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
-                                <span class="text-gray-700">{{ row.label }}</span>
+                                       class="h-3.5 w-3.5 rounded border-slate-600 text-blue-500 focus:ring-blue-500" checked>
+                                <span class="text-slate-300">{{ row.label }}</span>
                             </label>
                             {% endfor %}
                         </div>
                     </div>
-                    <label class="flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name="rebuild_feed" value="true" checked class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <label class="flex items-center gap-2 text-sm text-slate-300">
+                        <input type="checkbox" name="rebuild_feed" value="true" checked class="h-4 w-4 rounded border-slate-600 text-blue-500 focus:ring-blue-500">
                         Rebuild RSS feed after publishing
                     </label>
                     <button type="submit" class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
@@ -197,9 +197,9 @@
             </div>
 
             <div class="relative flex items-center">
-                <div class="flex-grow border-t border-gray-200"></div>
-                <span class="flex-shrink mx-3 text-xs text-gray-400">or upload new audio file</span>
-                <div class="flex-grow border-t border-gray-200"></div>
+                <div class="flex-grow border-t border-[var(--border-default)]"></div>
+                <span class="flex-shrink mx-3 text-xs text-slate-500">or upload new audio file</span>
+                <div class="flex-grow border-t border-[var(--border-default)]"></div>
             </div>
             {% endif %}
 
@@ -209,18 +209,18 @@
                 <input type="hidden" name="action" value="publish_audio">
                 <div class="flex flex-wrap gap-3">
                     <div class="flex-1 min-w-0">
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Audio File</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Audio File</label>
                         <input type="file" name="audio" accept="audio/*" required
-                               class="block w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200">
+                               class="block w-full text-sm text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600">
                     </div>
                     <div class="w-36">
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Duration (sec)</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Duration (sec)</label>
                         <input type="number" name="duration_seconds" min="0"
-                               class="block w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                               class="block w-full rounded-lg bg-[var(--bg-surface)] border-slate-600 text-slate-200 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500">
                     </div>
                 </div>
-                <label class="flex items-center gap-2 text-sm text-gray-700">
-                    <input type="checkbox" name="rebuild_feed" value="true" checked class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                <label class="flex items-center gap-2 text-sm text-slate-300">
+                    <input type="checkbox" name="rebuild_feed" value="true" checked class="h-4 w-4 rounded border-slate-600 text-blue-500 focus:ring-blue-500">
                     Rebuild RSS feed after upload
                 </label>
                 <button type="submit" class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
@@ -230,7 +230,7 @@
             </form>
 
             {% else %}
-            <p class="text-sm text-gray-500">Producer role or higher is required to publish.</p>
+            <p class="text-sm text-slate-500">Producer role or higher is required to publish.</p>
             {% endif %}
         </div>
     </div>
@@ -238,14 +238,14 @@
     <!-- ═══════════════════════════════════════════
          SECTION 2 — PUBLISH VIDEO
     ═══════════════════════════════════════════ -->
-    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div class="px-5 py-4 bg-gray-50 border-b border-gray-200 flex items-center gap-3">
-            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                <svg class="w-4 h-4 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.069A1 1 0 0121 8.882v6.236a1 1 0 01-1.447.894L15 14M4 6h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z"/></svg>
+    <div class="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl overflow-hidden">
+        <div class="px-5 py-4 bg-[var(--bg-surface)] border-b border-[var(--border-default)] flex items-center gap-3">
+            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-purple-900/40 flex items-center justify-center">
+                <svg class="w-4 h-4 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.069A1 1 0 0121 8.882v6.236a1 1 0 01-1.447.894L15 14M4 6h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z"/></svg>
             </div>
             <div>
-                <h3 class="font-semibold text-gray-900">Publish Episode Video</h3>
-                <p class="text-xs text-gray-500 mt-0.5">Master video for YouTube, Spotify Video, and manual platform workflows</p>
+                <h3 class="font-semibold text-slate-100">Publish Episode Video</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Master video for YouTube, Spotify Video, and manual platform workflows</p>
             </div>
         </div>
         <div class="p-5 space-y-5">
@@ -253,25 +253,25 @@
 
             {% if video_assets %}
             <div>
-                <h4 class="text-sm font-semibold text-gray-800 mb-3">Use an existing asset from the Media Library</h4>
+                <h4 class="text-sm font-semibold text-slate-200 mb-3">Use an existing asset from the Media Library</h4>
                 <form method="post" class="space-y-3">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="publish_video_from_asset">
                     <div class="space-y-2">
                         {% for asset in video_assets %}
-                        <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:border-purple-400 hover:bg-purple-50 cursor-pointer has-[:checked]:border-purple-500 has-[:checked]:bg-purple-50">
+                        <label class="flex items-start gap-3 p-3 rounded-lg border border-[var(--border-default)] hover:border-purple-500 cursor-pointer has-[:checked]:border-purple-500 has-[:checked]:bg-purple-900/20">
                             <input type="radio" name="video_asset_id" value="{{ asset.pk }}"
-                                   class="mt-0.5 h-4 w-4 text-purple-600 border-gray-300 focus:ring-purple-500"
+                                   class="mt-0.5 h-4 w-4 text-purple-500 border-slate-600 focus:ring-purple-500"
                                    {% if forloop.first %}checked{% endif %}>
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="text-sm font-medium text-gray-900">{{ asset.label|default:asset.filename|default:"Unnamed video" }}</span>
-                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700">{{ asset.get_asset_type_display }}</span>
-                                    {% if asset.duration_seconds %}<span class="text-xs text-gray-400">{{ asset.duration_seconds }}s</span>{% endif %}
-                                    {% if asset.file_size %}<span class="text-xs text-gray-400">{{ asset.file_size|filesizeformat }}</span>{% endif %}
+                                    <span class="text-sm font-medium text-slate-200">{{ asset.label|default:asset.filename|default:"Unnamed video" }}</span>
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-900/40 text-purple-300">{{ asset.get_asset_type_display }}</span>
+                                    {% if asset.duration_seconds %}<span class="text-xs text-slate-500">{{ asset.duration_seconds }}s</span>{% endif %}
+                                    {% if asset.file_size %}<span class="text-xs text-slate-500">{{ asset.file_size|filesizeformat }}</span>{% endif %}
                                 </div>
                                 {% if asset.external_url %}
-                                <a href="{{ asset.external_url }}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:text-blue-800 mt-0.5 truncate block">{{ asset.external_url|truncatechars:70 }}</a>
+                                <a href="{{ asset.external_url }}" target="_blank" rel="noopener" class="text-xs text-blue-400 hover:text-blue-300 mt-0.5 truncate block">{{ asset.external_url|truncatechars:70 }}</a>
                                 {% endif %}
                             </div>
                         </label>
@@ -279,9 +279,9 @@
                     </div>
                     <div class="flex gap-3 items-end">
                         <div class="flex-1">
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Label (optional)</label>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Label (optional)</label>
                             <input type="text" name="label" placeholder="e.g. Published Master Video"
-                                   class="block w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-purple-500 focus:ring-purple-500">
+                                   class="block w-full rounded-lg bg-[var(--bg-surface)] border-slate-600 text-slate-200 text-sm shadow-sm focus:border-purple-500 focus:ring-purple-500">
                         </div>
                         <button type="submit" class="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-purple-700 text-white text-sm font-medium rounded-lg hover:bg-purple-800">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
@@ -291,9 +291,9 @@
                 </form>
             </div>
             <div class="relative flex items-center">
-                <div class="flex-grow border-t border-gray-200"></div>
-                <span class="flex-shrink mx-3 text-xs text-gray-400">or upload new video file</span>
-                <div class="flex-grow border-t border-gray-200"></div>
+                <div class="flex-grow border-t border-[var(--border-default)]"></div>
+                <span class="flex-shrink mx-3 text-xs text-slate-500">or upload new video file</span>
+                <div class="flex-grow border-t border-[var(--border-default)]"></div>
             </div>
             {% endif %}
 
@@ -302,14 +302,14 @@
                 <input type="hidden" name="action" value="publish_video">
                 <div class="flex flex-wrap gap-3">
                     <div class="flex-1 min-w-0">
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Video File</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Video File</label>
                         <input type="file" name="video" accept="video/*" required
-                               class="block w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200">
+                               class="block w-full text-sm text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600">
                     </div>
                     <div class="flex-1 min-w-[12rem]">
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Label (optional)</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Label (optional)</label>
                         <input type="text" name="label" placeholder="Published Video - Episode 12"
-                               class="block w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-purple-500 focus:ring-purple-500">
+                               class="block w-full rounded-lg bg-[var(--bg-surface)] border-slate-600 text-slate-200 text-sm shadow-sm focus:border-purple-500 focus:ring-purple-500">
                     </div>
                 </div>
                 <button type="submit" class="inline-flex items-center gap-2 px-4 py-2 bg-purple-700 text-white text-sm font-medium rounded-lg hover:bg-purple-800">
@@ -319,7 +319,7 @@
             </form>
 
             {% else %}
-            <p class="text-sm text-gray-500">Producer role or higher is required to publish video.</p>
+            <p class="text-sm text-slate-500">Producer role or higher is required to publish video.</p>
             {% endif %}
         </div>
     </div>
@@ -328,16 +328,16 @@
          SECTION 2a — EXTRACT AUDIO FROM VIDEO
     ═══════════════════════════════════════════ -->
     {% if video_assets %}
-    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div class="px-5 py-4 bg-indigo-50 border-b border-gray-200 flex items-center gap-3">
-            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
-                <svg class="w-4 h-4 text-indigo-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div class="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl overflow-hidden">
+        <div class="px-5 py-4 bg-indigo-950/30 border-b border-[var(--border-default)] flex items-center gap-3">
+            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-indigo-900/40 flex items-center justify-center">
+                <svg class="w-4 h-4 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
                 </svg>
             </div>
             <div>
-                <h3 class="font-semibold text-gray-900">Extract Audio for Podcast RSS</h3>
-                <p class="text-xs text-gray-500 mt-0.5">Strip audio from your uploaded video and publish it to all podcast platforms automatically</p>
+                <h3 class="font-semibold text-slate-100">Extract Audio for Podcast RSS</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Strip audio from your uploaded video and publish it to all podcast platforms automatically</p>
             </div>
         </div>
         <div class="p-5">
@@ -349,18 +349,18 @@
 
                 <!-- Asset selector — only directly-downloadable uploads, not YouTube/Vimeo links -->
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Select source video</label>
+                    <label class="block text-sm font-semibold text-slate-300 mb-2">Select source video</label>
                     <div class="space-y-2">
                         {% for asset in extractable_video_assets %}
-                        <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:border-indigo-400 cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
+                        <label class="flex items-start gap-3 p-3 rounded-lg border border-[var(--border-default)] hover:border-indigo-500 cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-900/20">
                             <input type="radio" name="video_asset_id" value="{{ asset.pk }}"
-                                   class="mt-0.5 h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                                   class="mt-0.5 h-4 w-4 text-indigo-500 border-slate-600 focus:ring-indigo-500"
                                    {% if forloop.first %}checked{% endif %}>
                             <div class="flex-1 min-w-0">
-                                <span class="text-sm font-medium text-gray-900">{{ asset.label|default:asset.filename|default:"Unnamed video" }}</span>
-                                {% if asset.file_size %}<span class="ml-2 text-xs text-gray-400">{{ asset.file_size|filesizeformat }}</span>{% endif %}
-                                {% if asset.duration_seconds %}<span class="ml-2 text-xs text-gray-400">{{ asset.duration_seconds }}s</span>{% endif %}
-                                {% if asset.external_url %}<span class="text-xs text-gray-400 truncate block mt-0.5">{{ asset.external_url|truncatechars:70 }}</span>{% endif %}
+                                <span class="text-sm font-medium text-slate-200">{{ asset.label|default:asset.filename|default:"Unnamed video" }}</span>
+                                {% if asset.file_size %}<span class="ml-2 text-xs text-slate-500">{{ asset.file_size|filesizeformat }}</span>{% endif %}
+                                {% if asset.duration_seconds %}<span class="ml-2 text-xs text-slate-500">{{ asset.duration_seconds }}s</span>{% endif %}
+                                {% if asset.external_url %}<span class="text-xs text-slate-500 truncate block mt-0.5">{{ asset.external_url|truncatechars:70 }}</span>{% endif %}
                             </div>
                         </label>
                         {% endfor %}
@@ -370,8 +370,8 @@
                 <!-- Bitrate -->
                 <div class="flex items-center gap-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Audio quality</label>
-                        <select name="audio_bitrate" class="rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Audio quality</label>
+                        <select name="audio_bitrate" class="rounded-lg bg-[var(--bg-surface)] border-slate-600 text-slate-200 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                             <option value="128k">128 kbps — smaller file</option>
                             <option value="192k" selected>192 kbps — standard podcast</option>
                             <option value="320k">320 kbps — high quality</option>
@@ -381,16 +381,16 @@
                 </div>
 
                 <!-- ── Intro Studio ─────────────────────────────────── -->
-                <div class="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-3" id="intro-studio-root">
+                <div class="rounded-xl border border-indigo-800/60 bg-indigo-950/30 p-4 space-y-3" id="intro-studio-root">
 
                     <!-- Intro toggle header -->
                     <label class="flex items-center gap-3 cursor-pointer">
                         <input type="checkbox" name="add_intro" id="add_intro_toggle"
-                               class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                               class="h-4 w-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500"
                                onchange="introStudio.onToggle(this.checked)">
                         <div>
-                            <span class="text-sm font-semibold text-gray-900">Add intro announcement</span>
-                            <p class="text-xs text-gray-500 mt-0.5">Narrated intro mixed over a music bed, inserted at any point in the episode</p>
+                            <span class="text-sm font-semibold text-slate-100">Add intro announcement</span>
+                            <p class="text-xs text-slate-400 mt-0.5">Narrated intro mixed over a music bed, inserted at any point in the episode</p>
                         </div>
                     </label>
 
@@ -400,9 +400,9 @@
                         <!-- Voice + model row -->
                         <div class="flex flex-wrap gap-4">
                             <div class="flex-1 min-w-[160px]">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Voice</label>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">Voice</label>
                                 <select name="intro_voice" id="intro_voice"
-                                        class="w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                        class="w-full rounded-lg bg-[var(--bg-surface)] border-slate-600 text-slate-200 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                                     <optgroup label="★ Recommended for podcasts">
                                         <option value="coral" selected>Coral — warm, conversational</option>
                                         <option value="marin">Marin — clear, expressive</option>
@@ -423,9 +423,9 @@
                                 </select>
                             </div>
                             <div class="flex-1 min-w-[160px]">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Model</label>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">Model</label>
                                 <select name="intro_model" id="intro_model"
-                                        class="w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                        class="w-full rounded-lg bg-[var(--bg-surface)] border-slate-600 text-slate-200 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                                     <option value="gpt-4o-mini-tts" selected>GPT-4o Mini TTS ★ most natural</option>
                                     <option value="tts-1-hd">TTS-1 HD — legacy</option>
                                     <option value="tts-1">TTS-1 — legacy (faster)</option>
@@ -435,13 +435,13 @@
 
                         <!-- Intro text -->
                         <div>
-                            <label class="block text-xs font-medium text-gray-700 mb-1">
+                            <label class="block text-xs font-medium text-slate-400 mb-1">
                                 Intro text
-                                <span class="font-normal text-gray-400">(auto-generated if blank)</span>
+                                <span class="font-normal text-slate-500">(auto-generated if blank)</span>
                             </label>
                             <textarea name="intro_text" id="intro_text" rows="3"
                                       placeholder="Welcome to {{ episode.show.name }}. This episode is: {{ episode.title }}. Let's get started."
-                                      class="block w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 resize-none"></textarea>
+                                      class="block w-full rounded-lg bg-[var(--bg-surface)] border-slate-600 text-slate-200 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 resize-none"></textarea>
                         </div>
 
                         <!-- Preview button + audio player -->
@@ -449,19 +449,19 @@
                             <div class="flex items-center gap-3">
                                 <button type="button" id="preview-tts-btn"
                                         onclick="introStudio.generatePreview()"
-                                        class="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-indigo-400 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-50 disabled:opacity-50">
+                                        class="inline-flex items-center gap-2 px-4 py-1.5 bg-[var(--bg-elevated)] border border-indigo-600 text-indigo-300 text-sm font-medium rounded-lg hover:bg-indigo-950/40 disabled:opacity-50">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M12 18.364A9 9 0 1112 5.636m0 12.728V12m0 0l-3-3m3 3l3-3"/>
                                     </svg>
                                     <span id="preview-btn-label">Preview Voice</span>
                                 </button>
-                                <span id="preview-status" class="text-xs text-gray-400 hidden">Generating with OpenAI TTS…</span>
+                                <span id="preview-status" class="text-xs text-slate-400 hidden">Generating with OpenAI TTS…</span>
                             </div>
 
                             <!-- Audio preview player (hidden until preview is ready) -->
-                            <div id="tts-preview-player" class="hidden rounded-lg bg-white border border-indigo-200 p-3 space-y-1">
-                                <p class="text-xs font-medium text-gray-700">Intro preview
-                                    <span id="preview-voice-label" class="font-normal text-gray-400"></span>
+                            <div id="tts-preview-player" class="hidden rounded-lg bg-[var(--bg-elevated)] border border-indigo-800 p-3 space-y-1">
+                                <p class="text-xs font-medium text-slate-300">Intro preview
+                                    <span id="preview-voice-label" class="font-normal text-slate-500"></span>
                                 </p>
                                 <audio id="tts-audio" controls class="w-full h-9"></audio>
                                 <input type="hidden" name="intro_preview_token" id="intro_preview_token">
@@ -469,32 +469,32 @@
                         </div>
 
                         <!-- Insert position -->
-                        <div class="rounded-lg bg-white border border-gray-200 p-3 space-y-3">
+                        <div class="rounded-lg bg-[var(--bg-surface)] border border-slate-700 p-3 space-y-3">
                             <div>
-                                <p class="text-xs font-semibold text-gray-700 mb-1">Intro insert position</p>
-                                <p class="text-xs text-gray-500">Set to <strong>0</strong> to prepend before the episode. Set to <em>N</em> to insert N seconds into the episode audio (e.g. after an opening music sting).</p>
+                                <p class="text-xs font-semibold text-slate-300 mb-1">Intro insert position</p>
+                                <p class="text-xs text-slate-400">Set to <strong>0</strong> to prepend before the episode. Set to <em>N</em> to insert N seconds into the episode audio (e.g. after an opening music sting).</p>
                             </div>
 
                             <div class="flex items-center gap-3 flex-wrap">
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-700 mb-1">Insert at (seconds)</label>
+                                    <label class="block text-xs font-medium text-slate-400 mb-1">Insert at (seconds)</label>
                                     <input type="number" name="intro_offset_seconds" id="intro_offset_seconds"
                                            value="0" min="0" step="1"
-                                           class="w-28 rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                           class="w-28 rounded-lg bg-[var(--bg-surface)] border-slate-600 text-slate-200 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                                 </div>
                                 {% if audio_distributions %}
                                 <div class="flex-1">
-                                    <p class="text-xs font-medium text-gray-700 mb-1">Or play episode audio &amp; mark position</p>
+                                    <p class="text-xs font-medium text-slate-400 mb-1">Or play episode audio &amp; mark position</p>
                                     <audio id="episode-audio-ref"
                                            src="{{ audio_distributions.0.audio_public_url }}"
                                            class="w-full h-9"
                                            controls></audio>
                                     <div class="flex items-center gap-2 mt-2">
-                                        <span id="ep-current-time" class="text-xs text-gray-500 tabular-nums w-10">0:00</span>
+                                        <span id="ep-current-time" class="text-xs text-slate-500 tabular-nums w-10">0:00</span>
                                         <input type="range" id="ep-seek-bar" value="0" min="0" step="0.5"
                                                class="flex-1 h-1.5 rounded accent-indigo-600 cursor-pointer">
                                         <button type="button" onclick="introStudio.markPosition()"
-                                                class="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200">
+                                                class="px-2 py-1 text-xs font-medium bg-indigo-900/40 text-indigo-300 rounded hover:bg-indigo-900/70">
                                             Set position
                                         </button>
                                     </div>
@@ -515,11 +515,11 @@
                         </svg>
                         Extract &amp; Publish Audio
                     </button>
-                    <p class="text-xs text-gray-400">Downloads the video, strips audio, optionally adds an intro, and publishes to all podcast platforms. Large files may take a minute.</p>
+                    <p class="text-xs text-slate-500">Downloads the video, strips audio, optionally adds an intro, and publishes to all podcast platforms. Large files may take a minute.</p>
                 </div>
             </form>
             {% else %}
-                <div class="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+                <div class="rounded-xl border border-yellow-800 bg-yellow-950/30 p-4 text-sm text-yellow-300">
                     No directly-downloadable video uploads are available for audio extraction.
                     YouTube/Vimeo links cannot be used for this workflow.
                     Upload the video file directly to the Media Library, then try again.
@@ -618,7 +618,7 @@
             </script>
 
             {% else %}
-            <p class="text-sm text-gray-500">Producer role or higher required to extract audio.</p>
+            <p class="text-sm text-slate-500">Producer role or higher required to extract audio.</p>
             {% endif %}
         </div>
     </div>
@@ -628,37 +628,37 @@
          SECTION 2b — YOUTUBE UPLOAD
     ═══════════════════════════════════════════ -->
     {% with yt_dist=distributions.youtube %}
-    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div class="px-5 py-4 bg-red-50 border-b border-gray-200 flex items-center justify-between">
+    <div class="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl overflow-hidden">
+        <div class="px-5 py-4 bg-red-950/20 border-b border-[var(--border-default)] flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                    <svg class="w-4 h-4 text-red-600" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-red-900/40 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
                 </div>
                 <div>
-                    <h3 class="font-semibold text-gray-900">Publish to YouTube</h3>
-                    <p class="text-xs text-gray-500 mt-0.5">Auto-upload the episode video to your connected YouTube channel</p>
+                    <h3 class="font-semibold text-slate-100">Publish to YouTube</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Auto-upload the episode video to your connected YouTube channel</p>
                 </div>
             </div>
             {% if yt_dist %}
             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                {% if yt_dist.status == 'live' %}bg-green-100 text-green-800
-                {% elif yt_dist.status == 'submitted' %}bg-blue-100 text-blue-800
-                {% else %}bg-gray-100 text-gray-600{% endif %}">
+                {% if yt_dist.status == 'live' %}bg-green-900/40 text-green-300
+                {% elif yt_dist.status == 'submitted' %}bg-blue-900/40 text-blue-300
+                {% else %}bg-slate-700 text-slate-300{% endif %}">
                 {{ yt_dist.get_status_display }}
             </span>
             {% endif %}
         </div>
         <div class="p-5">
             {% if yt_dist and yt_dist.platform_url %}
-            <div class="mb-4 flex items-center gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
-                <svg class="w-5 h-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <div class="mb-4 flex items-center gap-3 p-3 rounded-lg bg-green-950/30 border border-green-800">
+                <svg class="w-5 h-5 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 <div class="flex-1 min-w-0">
-                    <p class="text-sm text-green-800 font-medium">Uploaded to YouTube</p>
+                    <p class="text-sm text-green-300 font-medium">Uploaded to YouTube</p>
                     <a href="{{ yt_dist.platform_url }}" target="_blank" rel="noopener"
-                       class="text-xs text-green-700 hover:text-green-900 truncate block">{{ yt_dist.platform_url }}</a>
+                       class="text-xs text-green-400 hover:text-green-300 truncate block">{{ yt_dist.platform_url }}</a>
                 </div>
                 <a href="{{ yt_dist.platform_url }}" target="_blank" rel="noopener"
-                   class="flex-shrink-0 text-xs font-medium text-green-700 hover:text-green-900 flex items-center gap-1">
+                   class="flex-shrink-0 text-xs font-medium text-green-400 hover:text-green-300 flex items-center gap-1">
                     View
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                 </a>
@@ -666,13 +666,13 @@
             {% endif %}
 
             {% if not podcast_feed_config or not podcast_feed_config.youtube_connected %}
-            <div class="rounded-lg bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800">
+            <div class="rounded-lg bg-yellow-950/30 border border-yellow-800 px-4 py-3 text-sm text-yellow-300">
                 YouTube is not connected for this show.
                 <a href="{% url 'production_ledger:show_edit' episode.show.pk %}"
                    class="font-semibold underline ml-1">Go to Edit Show → YouTube Integration</a> to connect your channel.
             </div>
             {% elif not video_assets %}
-            <div class="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-600">
+            <div class="rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] px-4 py-3 text-sm text-slate-400">
                 No video assets found for this episode.
                 Upload a video file in the <strong>Publish Episode Video</strong> section above, then return here to send it to YouTube.
             </div>
@@ -681,21 +681,21 @@
                 {% csrf_token %}
                 <input type="hidden" name="action" value="publish_to_youtube">
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Select video to upload</label>
+                    <label class="block text-sm font-semibold text-slate-300 mb-2">Select video to upload</label>
                     <div class="space-y-2">
                         {% for asset in video_assets %}
-                        <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:border-red-400 hover:bg-red-50 cursor-pointer has-[:checked]:border-red-500 has-[:checked]:bg-red-50">
+                        <label class="flex items-start gap-3 p-3 rounded-lg border border-[var(--border-default)] hover:border-red-500 cursor-pointer has-[:checked]:border-red-500 has-[:checked]:bg-red-900/20">
                             <input type="radio" name="video_asset_id" value="{{ asset.pk }}"
-                                   class="mt-0.5 h-4 w-4 text-red-600 border-gray-300 focus:ring-red-500"
+                                   class="mt-0.5 h-4 w-4 text-red-500 border-slate-600 focus:ring-red-500"
                                    {% if forloop.first %}checked{% endif %}>
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="text-sm font-medium text-gray-900">{{ asset.label|default:asset.filename|default:"Unnamed video" }}</span>
-                                    {% if asset.duration_seconds %}<span class="text-xs text-gray-400">{{ asset.duration_seconds }}s</span>{% endif %}
-                                    {% if asset.file_size %}<span class="text-xs text-gray-400">{{ asset.file_size|filesizeformat }}</span>{% endif %}
+                                    <span class="text-sm font-medium text-slate-200">{{ asset.label|default:asset.filename|default:"Unnamed video" }}</span>
+                                    {% if asset.duration_seconds %}<span class="text-xs text-slate-500">{{ asset.duration_seconds }}s</span>{% endif %}
+                                    {% if asset.file_size %}<span class="text-xs text-slate-500">{{ asset.file_size|filesizeformat }}</span>{% endif %}
                                 </div>
                                 {% if asset.external_url %}
-                                <span class="text-xs text-gray-400 truncate block">{{ asset.external_url|truncatechars:60 }}</span>
+                                <span class="text-xs text-slate-500 truncate block">{{ asset.external_url|truncatechars:60 }}</span>
                                 {% endif %}
                             </div>
                         </label>
@@ -704,9 +704,9 @@
                 </div>
                 <div class="flex items-end gap-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Privacy</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Privacy</label>
                         <select name="youtube_privacy"
-                                class="rounded-lg border-gray-300 text-sm shadow-sm focus:border-red-500 focus:ring-red-500">
+                                class="rounded-lg bg-[var(--bg-surface)] border-slate-600 text-slate-200 text-sm shadow-sm focus:border-red-500 focus:ring-red-500">
                             <option value="public" {% if podcast_feed_config.youtube_default_privacy == 'public' %}selected{% endif %}>Public</option>
                             <option value="unlisted" {% if podcast_feed_config.youtube_default_privacy == 'unlisted' %}selected{% endif %}>Unlisted</option>
                             <option value="private" {% if podcast_feed_config.youtube_default_privacy == 'private' %}selected{% endif %}>Private</option>
@@ -719,10 +719,10 @@
                         Upload to YouTube
                     </button>
                 </div>
-                <p class="text-xs text-gray-400">Large video files may take several minutes. Don't close this tab while uploading.</p>
+                <p class="text-xs text-slate-500">Large video files may take several minutes. Don't close this tab while uploading.</p>
             </form>
             {% else %}
-            <p class="text-sm text-gray-500">Producer role or higher required to publish to YouTube.</p>
+            <p class="text-sm text-slate-500">Producer role or higher required to publish to YouTube.</p>
             {% endif %}
         </div>
     </div>
@@ -734,22 +734,22 @@
     <div>
         <div class="flex items-center justify-between mb-4">
             <div>
-                <h3 class="font-semibold text-gray-900">Podcast Platform Distribution</h3>
-                <p class="text-sm text-gray-500 mt-0.5">
+                <h3 class="font-semibold text-slate-100">Podcast Platform Distribution</h3>
+                <p class="text-sm text-slate-400 mt-0.5">
                     All platforms consume your RSS feed. Submit the feed URL once — they poll it automatically for every new episode.
                     {% if podcast_feed_config and podcast_feed_config.feed_public_url %}
                     <button onclick="navigator.clipboard.writeText('{{ podcast_feed_config.feed_public_url }}').then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy feed URL'},1500)})"
-                            class="ml-1 text-blue-600 hover:text-blue-800 font-medium">Copy feed URL</button>
+                            class="ml-1 text-blue-400 hover:text-blue-300 font-medium">Copy feed URL</button>
                     {% endif %}
                 </p>
             </div>
         </div>
 
         {% if not podcast_feed_config or not podcast_feed_config.feed_public_url %}
-        <div class="mb-4 p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-start gap-3">
-            <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        <div class="mb-4 p-4 rounded-xl bg-amber-950/30 border border-amber-700 text-sm text-amber-300 flex items-start gap-3">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
             <div>
-                <strong>RSS feed not set up yet.</strong> Go to <a href="{% url 'production_ledger:show_edit' episode.show.pk %}" class="underline font-semibold">Edit Show</a> to configure your podcast feed (title, description, cover art, author) and publish it. Once the feed URL is live, paste it into each platform below to register your podcast.
+                <strong>RSS feed not set up yet.</strong> Go to <a href="{% url 'production_ledger:show_edit' episode.show.pk %}" class="underline font-semibold text-amber-200">Edit Show</a> to configure your podcast feed (title, description, cover art, author) and publish it. Once the feed URL is live, paste it into each platform below to register your podcast.
             </div>
         </div>
         {% endif %}
@@ -757,47 +757,47 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             {% for row in platform_rows %}
             {% with dist=row.dist %}
-            <div class="bg-white border rounded-xl overflow-hidden
-                {% if dist and dist.status == 'live' %}border-green-300
-                {% elif dist and dist.status == 'submitted' %}border-blue-300
-                {% elif dist and dist.status == 'failed' %}border-red-300
-                {% else %}border-gray-200{% endif %}">
+            <div class="bg-[var(--bg-elevated)] border rounded-xl overflow-hidden
+                {% if dist and dist.status == 'live' %}border-green-700
+                {% elif dist and dist.status == 'submitted' %}border-blue-700
+                {% elif dist and dist.status == 'failed' %}border-red-700
+                {% else %}border-[var(--border-default)]{% endif %}">
 
                 <!-- Platform header -->
                 <div class="flex items-center justify-between px-4 py-3
-                    {% if dist and dist.status == 'live' %}bg-green-50
-                    {% elif dist and dist.status == 'submitted' %}bg-blue-50
-                    {% elif dist and dist.status == 'failed' %}bg-red-50
-                    {% else %}bg-gray-50{% endif %}">
-                    <span class="font-semibold text-sm text-gray-900">{{ row.label }}</span>
+                    {% if dist and dist.status == 'live' %}bg-green-950/30
+                    {% elif dist and dist.status == 'submitted' %}bg-blue-950/30
+                    {% elif dist and dist.status == 'failed' %}bg-red-950/30
+                    {% else %}bg-[var(--bg-surface)]{% endif %}">
+                    <span class="font-semibold text-sm text-slate-100">{{ row.label }}</span>
                     {% if dist %}
                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                        {% if dist.status == 'live' %}bg-green-100 text-green-800
-                        {% elif dist.status == 'submitted' %}bg-blue-100 text-blue-800
-                        {% elif dist.status == 'failed' %}bg-red-100 text-red-800
-                        {% else %}bg-gray-100 text-gray-600{% endif %}">
+                        {% if dist.status == 'live' %}bg-green-900/40 text-green-300
+                        {% elif dist.status == 'submitted' %}bg-blue-900/40 text-blue-300
+                        {% elif dist.status == 'failed' %}bg-red-900/40 text-red-300
+                        {% else %}bg-slate-700 text-slate-300{% endif %}">
                         {{ dist.get_status_display }}
                     </span>
                     {% else %}
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Not published</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-400">Not published</span>
                     {% endif %}
                 </div>
 
                 <!-- Body -->
-                <div class="px-4 py-3 text-xs text-gray-600 space-y-2">
+                <div class="px-4 py-3 text-xs text-slate-400 space-y-2">
                     {% if dist %}
                     {% if dist.submitted_at %}
-                    <p class="text-gray-400">Submitted {{ dist.submitted_at|date:"M j, Y" }}</p>
+                    <p class="text-slate-500">Submitted {{ dist.submitted_at|date:"M j, Y" }}</p>
                     {% endif %}
                     {% if dist.platform_url %}
                     <a href="{{ dist.platform_url }}" target="_blank" rel="noopener"
-                       class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-medium">
+                       class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 font-medium">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                         View on {{ row.label }}
                     </a>
                     {% endif %}
                     {% if dist.audio_public_url %}
-                    <div class="flex items-center gap-1 text-gray-400">
+                    <div class="flex items-center gap-1 text-slate-500">
                         <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
                         <span class="truncate">{{ dist.audio_public_url|truncatechars:50 }}</span>
                     </div>
@@ -807,32 +807,32 @@
                     {% if row.code == 'rss' %}
                     <p>Your RSS feed is the source of truth. All other platforms poll it automatically.</p>
                     {% if podcast_feed_config and podcast_feed_config.feed_public_url %}
-                    <div class="flex items-center gap-2 bg-gray-50 rounded p-2 font-mono text-gray-700 break-all">
+                    <div class="flex items-center gap-2 bg-[var(--bg-surface)] rounded p-2 font-mono text-slate-300 break-all">
                         {{ podcast_feed_config.feed_public_url }}
                     </div>
                     {% else %}
-                    <p class="text-amber-700">Publish audio and configure Show Settings to generate the feed URL.</p>
+                    <p class="text-amber-400">Publish audio and configure Show Settings to generate the feed URL.</p>
                     {% endif %}
                     {% elif row.submission_url %}
                     {% if row.code == 'spotify' %}
                     <p>Spotify requires manual upload. Use the pre-filled content below.</p>
                     <a href="{{ row.submission_url }}" target="_blank" rel="noopener"
-                       class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-medium">
+                       class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 font-medium">
                         Open Spotify for Creators
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                     </a>
                     {% else %}
                     <p>Submit your RSS feed URL to register this podcast on {{ row.label }}:</p>
-                    <ol class="list-decimal list-inside space-y-1 text-gray-500">
+                    <ol class="list-decimal list-inside space-y-1 text-slate-500">
                         <li>
                             <a href="{{ row.submission_url }}" target="_blank" rel="noopener"
-                               class="text-blue-600 hover:text-blue-800 font-medium">Open {{ row.label }} submission portal</a>
+                               class="text-blue-400 hover:text-blue-300 font-medium">Open {{ row.label }} submission portal</a>
                         </li>
                         <li>
                             {% if podcast_feed_config and podcast_feed_config.feed_public_url %}
                             Paste your feed URL: <button
                                 onclick="navigator.clipboard.writeText('{{ podcast_feed_config.feed_public_url }}').then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy'},1500)})"
-                                class="text-blue-600 hover:text-blue-800 font-medium">Copy feed URL</button>
+                                class="text-blue-400 hover:text-blue-300 font-medium">Copy feed URL</button>
                             {% else %}
                             Paste your RSS feed URL (configure in Show Settings first)
                             {% endif %}
@@ -842,9 +842,9 @@
                     {% endif %}{# end spotify/else #}
                     {% else %}
                     {% if 'Discontinued' in row.label or 'discontinued' in row.label %}
-                    <p class="text-gray-400">This platform has been discontinued and is no longer accepting new podcasts.</p>
+                    <p class="text-slate-500">This platform has been discontinued and is no longer accepting new podcasts.</p>
                     {% else %}
-                    <p class="text-gray-400">Manual submission required for this platform.</p>
+                    <p class="text-slate-500">Manual submission required for this platform.</p>
                     {% endif %}
                     {% endif %}
                     {% endif %}
@@ -859,11 +859,11 @@
          SPOTIFY UPLOAD PACK
     ═══════════════════════════════════════════ -->
     {% if spotify_pack %}
-    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div class="flex items-center justify-between px-5 py-4 bg-[#1DB954]/10 border-b border-gray-200">
+    <div class="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 bg-[#1DB954]/10 border-b border-[var(--border-default)]">
             <div class="flex items-center gap-2">
                 <svg class="w-5 h-5 text-[#1DB954]" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
-                <h3 class="font-semibold text-gray-900">Spotify Upload Pack</h3>
+                <h3 class="font-semibold text-slate-100">Spotify Upload Pack</h3>
             </div>
             <a href="{{ spotify_pack.upload_url }}" target="_blank" rel="noopener"
                class="text-sm font-medium text-[#1DB954] hover:text-green-700 flex items-center gap-1">
@@ -872,35 +872,35 @@
             </a>
         </div>
         <div class="p-5 space-y-5">
-            <p class="text-xs text-gray-500">Spotify doesn't use RSS — paste these fields directly into their upload form.</p>
+            <p class="text-xs text-slate-500">Spotify doesn't use RSS — paste these fields directly into their upload form.</p>
 
             <!-- Title -->
             <div>
                 <div class="flex items-center justify-between mb-1">
-                    <label class="text-xs font-semibold text-gray-700 uppercase tracking-wide">Title <span class="font-normal text-gray-400">({{ spotify_pack.title|length }}/200)</span></label>
+                    <label class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Title <span class="font-normal text-slate-500">({{ spotify_pack.title|length }}/200)</span></label>
                     <button type="button" id="copy-sp-title"
                             onclick="navigator.clipboard.writeText(document.getElementById('sp-title').value).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy'},1500)})"
-                            class="text-xs text-blue-600 hover:text-blue-800 font-medium">Copy</button>
+                            class="text-xs text-blue-400 hover:text-blue-300 font-medium">Copy</button>
                 </div>
                 <input id="sp-title" type="text" readonly value="{{ spotify_pack.title }}"
-                       class="block w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 font-medium">
+                       class="block w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-slate-200 font-medium">
             </div>
 
             <!-- Description -->
             <div>
                 <div class="flex items-center justify-between mb-1">
-                    <label class="text-xs font-semibold text-gray-700 uppercase tracking-wide">Description <span class="font-normal text-gray-400">({{ spotify_pack.char_count }}/4000 chars)</span></label>
+                    <label class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Description <span class="font-normal text-slate-500">({{ spotify_pack.char_count }}/4000 chars)</span></label>
                     <button type="button"
                             onclick="navigator.clipboard.writeText(document.getElementById('sp-desc').value).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy'},1500)})"
-                            class="text-xs text-blue-600 hover:text-blue-800 font-medium">Copy</button>
+                            class="text-xs text-blue-400 hover:text-blue-300 font-medium">Copy</button>
                 </div>
                 <textarea id="sp-desc" readonly rows="10"
-                          class="block w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 font-mono resize-y">{{ spotify_pack.description_html }}</textarea>
+                          class="block w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-slate-300 font-mono resize-y">{{ spotify_pack.description_html }}</textarea>
                 {% if spotify_pack.char_count >= 3800 %}
-                <p class="mt-1 text-xs text-amber-600">Near the 4000-char limit — consider trimming the description.</p>
+                <p class="mt-1 text-xs text-amber-400">Near the 4000-char limit — consider trimming the description.</p>
                 {% endif %}
                 {% if not spotify_pack.description_html %}
-                <p class="mt-1 text-xs text-gray-400">Finalize show notes to generate the description.</p>
+                <p class="mt-1 text-xs text-slate-500">Finalize show notes to generate the description.</p>
                 {% endif %}
             </div>
         </div>

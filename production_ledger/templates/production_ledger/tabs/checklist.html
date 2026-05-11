@@ -3,36 +3,36 @@
 {% block tab_content %}
 <div class="space-y-6">
     <div class="flex justify-between items-center">
-        <h3 class="text-lg font-medium text-gray-900">Episode Checklist</h3>
+        <h3 class="text-lg font-medium text-slate-100">Episode Checklist</h3>
         {% if is_complete %}
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-900/40 text-green-300">
             ✓ All Required Items Complete
         </span>
         {% else %}
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-900/40 text-yellow-300">
             Required Items Incomplete
         </span>
         {% endif %}
     </div>
 
-    <p class="text-sm text-gray-500">
+    <p class="text-sm text-slate-400">
         Complete all required items before the episode can be marked as "Approved" or "Published".
     </p>
 
     <!-- Checklist Items -->
-    <div class="bg-white border border-gray-200 rounded-lg divide-y divide-gray-200">
+    <div class="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg divide-y divide-[var(--border-default)]">
         {% for item in checklist_items %}
         <div class="px-4 py-3 flex items-center justify-between">
             <div class="flex items-center">
                 <form method="post" action="{% url 'production_ledger:checklist_toggle' item.pk %}" class="mr-3">
                     {% csrf_token %}
                     <button type="submit" class="w-6 h-6 rounded border-2 flex items-center justify-center
-                        {% if item.is_done %}bg-green-500 border-green-500 text-white{% else %}border-gray-300 hover:border-gray-400{% endif %}">
+                        {% if item.is_done %}bg-green-500 border-green-500 text-white{% else %}border-slate-600 hover:border-slate-400{% endif %}">
                         {% if item.is_done %}✓{% endif %}
                     </button>
                 </form>
                 <div>
-                    <span class="{% if item.is_done %}line-through text-gray-400{% else %}text-gray-900{% endif %}">
+                    <span class="{% if item.is_done %}line-through text-slate-500{% else %}text-slate-100{% endif %}">
                         {{ item.title }}
                     </span>
                     {% if item.is_required %}
@@ -40,7 +40,7 @@
                     {% endif %}
                 </div>
             </div>
-            <div class="text-sm text-gray-500">
+            <div class="text-sm text-slate-500">
                 {% if item.is_done %}
                     Done by {{ item.done_by.username }} on {{ item.done_at|date:"M d" }}
                 {% endif %}
@@ -50,9 +50,9 @@
     </div>
 
     <!-- Status Transition Info -->
-    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-        <h4 class="font-medium text-gray-900 mb-2">Status Transitions</h4>
-        <p class="text-sm text-gray-600">
+    <div class="bg-[var(--bg-surface)] rounded-lg p-4 border border-[var(--border-default)]">
+        <h4 class="font-medium text-slate-100 mb-2">Status Transitions</h4>
+        <p class="text-sm text-slate-400">
             The episode is currently <strong>{{ episode.get_status_display }}</strong>.
             {% if not is_complete %}
             Complete all required checklist items to transition to "Approved" or "Published".
