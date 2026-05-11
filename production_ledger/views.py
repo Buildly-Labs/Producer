@@ -1093,28 +1093,24 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                 import threading  # noqa: PLC0415
                 import django  # noqa: PLC0415
 
-                def _rebuild_feed(show_id, user_id):
-                    import logging  # noqa: PLC0415
-                    logger = logging.getLogger(__name__)
+                from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+                from .models import BackgroundTask as _BT  # noqa: PLC0415
+
+                def _rebuild_feed_fn(show_id, user_id):
                     from django.contrib.auth import get_user_model  # noqa: PLC0415
                     from .models import Show as _Show  # noqa: PLC0415
                     from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
+                    _build(_Show.objects.get(pk=show_id), user=get_user_model().objects.get(pk=user_id))
 
-                    try:
-                        User = get_user_model()
-                        user = User.objects.get(pk=user_id)
-                        show = _Show.objects.get(pk=show_id)
-                        _build(show, user=user)
-                    except Exception as exc:
-                        logger.exception('Background feed rebuild failed for show %s', show_id)
-                    finally:
-                        django.db.connections.close_all()
-
-                threading.Thread(
-                    target=_rebuild_feed,
-                    args=(str(episode.show.pk), request.user.pk),
-                    daemon=True,
-                ).start()
+                _rbt(
+                    task_type=_BT.TASK_FEED_REBUILD,
+                    label=f'RSS feed rebuild after publish',
+                    fn=_rebuild_feed_fn,
+                    episode=episode,
+                    created_by=request.user,
+                    show_id=str(episode.show.pk),
+                    user_id=request.user.pk,
+                )
                 messages.info(request, 'Distributions updated. RSS feed rebuild started in the background.')
             else:
                 messages.success(request, f'Audio asset published to {count} platform record(s).')
@@ -1317,7 +1313,6 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                 add_intro, intro_text, intro_audio_path, insert_at_seconds,
                 intro_voice, intro_model, bitrate, user_pk,
             ):
-                import django.db  # noqa: PLC0415
                 from django.contrib.auth import get_user_model  # noqa: PLC0415
                 from .models import MediaAsset as _MA, Episode as _Ep  # noqa: PLC0415
                 from .constants import IngestionStatus as _IS  # noqa: PLC0415
@@ -1367,27 +1362,26 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                     except Exception as feed_exc:
                         logger.warning("Feed rebuild failed after audio extraction: %s", feed_exc)
 
-                except Exception as exc:
-                    logger.exception("Background audio extraction failed for asset %s", asset_pk)
-                    try:
-                        asset = _MA.objects.get(pk=asset_pk)
-                        asset.ingestion_status = _IS.FAILED
-                        asset.error_message = str(exc)
-                        asset.save(update_fields=['ingestion_status', 'error_message'])
-                    except Exception:
-                        pass
                 finally:
                     if audio_path:
                         _cleanup(audio_path)
-                    django.db.connections.close_all()
 
-            t = threading.Thread(target=_run_extraction, kwargs=_thread_kwargs, daemon=True)
-            t.start()
+            from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+            from .models import BackgroundTask as _BT  # noqa: PLC0415
+            _rbt(
+                task_type=_BT.TASK_AUDIO_EXTRACT,
+                label=f'Audio extraction: {episode.title[:50]}',
+                fn=_run_extraction,
+                episode=episode,
+                created_by=request.user,
+                timeout=900,
+                **_thread_kwargs,
+            )
 
             messages.info(
                 request,
-                f'Audio extraction started. The page will update automatically when it\'s ready '
-                f'(usually 2–5 minutes depending on video length).',
+                'Audio extraction started. The page will update automatically when it\'s ready '
+                '(usually 2–5 minutes depending on video length).',
             )
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
@@ -1412,31 +1406,24 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
         if rebuild_feed:
-            import threading  # noqa: PLC0415
-            import django  # noqa: PLC0415
+            from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+            from .models import BackgroundTask as _BT  # noqa: PLC0415
 
-            def _rebuild_feed(show_id, user_id):
-                import logging  # noqa: PLC0415
-                logger = logging.getLogger(__name__)
+            def _rebuild_feed_fn2(show_id, user_id):
                 from django.contrib.auth import get_user_model  # noqa: PLC0415
                 from .models import Show as _Show  # noqa: PLC0415
                 from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
+                _build(_Show.objects.get(pk=show_id), user=get_user_model().objects.get(pk=user_id))
 
-                try:
-                    User = get_user_model()
-                    user = User.objects.get(pk=user_id)
-                    show = _Show.objects.get(pk=show_id)
-                    _build(show, user=user)
-                except Exception as exc:
-                    logger.exception('Background feed rebuild failed for show %s', show_id)
-                finally:
-                    django.db.connections.close_all()
-
-            threading.Thread(
-                target=_rebuild_feed,
-                args=(str(episode.show.pk), request.user.pk),
-                daemon=True,
-            ).start()
+            _rbt(
+                task_type=_BT.TASK_FEED_REBUILD,
+                label='RSS feed rebuild after audio upload',
+                fn=_rebuild_feed_fn2,
+                episode=episode,
+                created_by=request.user,
+                show_id=str(episode.show.pk),
+                user_id=request.user.pk,
+            )
             messages.info(request, 'Audio uploaded. RSS feed rebuild started in the background.')
         else:
             messages.success(
@@ -1667,19 +1654,23 @@ class EpisodeTranscriptView(EpisodeTabMixin, TemplateView):
                 messages.error(request, 'No media asset found. Upload audio/video in the Media tab first.')
                 return redirect('production_ledger:episode_transcript', pk=episode.pk)
 
-            def _run(asset_pk, user):
-                from .models import MediaAsset  # noqa: PLC0415
-                import django.db  # noqa: PLC0415
-                try:
-                    asset = MediaAsset.objects.get(pk=asset_pk)
-                    transcription_svc.transcribe_media_asset(asset, user=user)
-                except Exception:
-                    pass
-                finally:
-                    django.db.connection.close()
+            from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+            from .models import BackgroundTask as _BT  # noqa: PLC0415
 
-            t = threading.Thread(target=_run, args=(media_asset.pk, request.user), daemon=True)
-            t.start()
+            def _run_transcription(asset_pk, user):
+                from .models import MediaAsset  # noqa: PLC0415
+                asset = MediaAsset.objects.get(pk=asset_pk)
+                transcription_svc.transcribe_media_asset(asset, user=user)
+
+            _rbt(
+                task_type=_BT.TASK_TRANSCRIPTION,
+                label=f'Auto-transcribe: {media_asset.label or media_asset.filename or str(media_asset.pk)[:8]}',
+                fn=_run_transcription,
+                episode=episode,
+                created_by=request.user,
+                asset_pk=media_asset.pk,
+                user=request.user,
+            )
             messages.success(request, 'Transcription started in the background — refresh this page in a moment to see the result.')
             return redirect('production_ledger:episode_transcript', pk=episode.pk)
         
@@ -1756,29 +1747,31 @@ class EpisodeClipsView(EpisodeTabMixin, TemplateView):
                     messages.error(request, 'No transcript or media found. Upload media first.')
                     return redirect('production_ledger:episode_clips', pk=episode.pk)
 
-                def _transcribe_then_identify(asset_pk, ep_pk, aspect_ratio, max_clips, user):
+                from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+                from .models import BackgroundTask as _BT  # noqa: PLC0415
+
+                def _transcribe_then_identify_fn(asset_pk, ep_pk, aspect_ratio, max_clips, user):
                     import django.db  # noqa: PLC0415
                     from .models import MediaAsset, Episode  # noqa: PLC0415
-                    try:
-                        asset = MediaAsset.objects.get(pk=asset_pk)
-                        tr = transcription_svc.transcribe_media_asset(asset, user=user)
-                        ep = Episode.objects.get(pk=ep_pk)
-                        identify_and_queue_shorts(ep, transcript=tr, aspect_ratio=aspect_ratio,
-                                                  max_clips=max_clips, user=user)
-                    except Exception:
-                        pass
-                    finally:
-                        django.db.connection.close()
+                    asset = MediaAsset.objects.get(pk=asset_pk)
+                    tr = transcription_svc.transcribe_media_asset(asset, user=user)
+                    ep = Episode.objects.get(pk=ep_pk)
+                    identify_and_queue_shorts(ep, transcript=tr, aspect_ratio=aspect_ratio,
+                                              max_clips=max_clips, user=user)
 
-                t = threading.Thread(
-                    target=_transcribe_then_identify,
-                    args=(media_asset.pk, episode.pk,
-                          request.POST.get('aspect_ratio', '9:16'),
-                          int(request.POST.get('max_clips', 5) or 5),
-                          request.user),
-                    daemon=True,
+                _rbt(
+                    task_type=_BT.TASK_SHORT_IDENTIFY,
+                    label=f'Transcribe + identify clips: {episode.title[:50]}',
+                    fn=_transcribe_then_identify_fn,
+                    episode=episode,
+                    created_by=request.user,
+                    timeout=900,
+                    asset_pk=media_asset.pk,
+                    ep_pk=episode.pk,
+                    aspect_ratio=request.POST.get('aspect_ratio', '9:16'),
+                    max_clips=int(request.POST.get('max_clips', 5) or 5),
+                    user=request.user,
                 )
-                t.start()
                 messages.info(request, 'No transcript found — transcribing and identifying clips in the background. Refresh in a moment.')
                 return redirect('production_ledger:episode_clips', pk=episode.pk)
 

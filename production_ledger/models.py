@@ -1485,3 +1485,90 @@ class OrgAPIKey(models.Model):
             return cls.objects.get(organization_uuid=organization_uuid, service=service).api_key
         except cls.DoesNotExist:
             return None
+
+
+# =============================================================================
+# BACKGROUND TASKS
+# =============================================================================
+
+class BackgroundTask(models.Model):
+    """
+    Tracks every daemon background job (AI generate, transcription, audio extraction,
+    feed rebuild, etc.) so the UI can poll for status and alert users on failure.
+    """
+
+    TASK_AI_GENERATE = 'ai_generate'
+    TASK_AUDIO_EXTRACT = 'audio_extract'
+    TASK_TRANSCRIPTION = 'transcription'
+    TASK_SHORT_IDENTIFY = 'short_identify'
+    TASK_FEED_REBUILD = 'feed_rebuild'
+    TASK_PUBLISH = 'publish'
+
+    TASK_TYPE_CHOICES = [
+        (TASK_AI_GENERATE, 'AI Generate'),
+        (TASK_AUDIO_EXTRACT, 'Audio Extraction'),
+        (TASK_TRANSCRIPTION, 'Transcription'),
+        (TASK_SHORT_IDENTIFY, 'Short Identification'),
+        (TASK_FEED_REBUILD, 'RSS Feed Rebuild'),
+        (TASK_PUBLISH, 'Publish'),
+    ]
+
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_COMPLETED = 'completed'
+    STATUS_FAILED = 'failed'
+    STATUS_TIMEOUT = 'timeout'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_COMPLETED, 'Completed'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_TIMEOUT, 'Timed Out'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization_uuid = models.UUIDField(db_index=True)
+    episode = models.ForeignKey(
+        'Episode',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='background_tasks',
+    )
+    task_type = models.CharField(max_length=50, choices=TASK_TYPE_CHOICES, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    label = models.CharField(max_length=255, default='')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, default='')
+    metadata = models.JSONField(default=dict)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='background_tasks',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['organization_uuid', 'status']),
+            models.Index(fields=['episode', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_task_type_display()} [{self.status}] — {self.label or self.id}"
+
+    @property
+    def is_terminal(self):
+        return self.status in (self.STATUS_COMPLETED, self.STATUS_FAILED, self.STATUS_TIMEOUT)
+
+    @property
+    def duration_seconds(self):
+        if self.started_at and self.completed_at:
+            return int((self.completed_at - self.started_at).total_seconds())
+        if self.started_at:
+            from django.utils import timezone  # noqa: PLC0415
+            return int((timezone.now() - self.started_at).total_seconds())
+        return None

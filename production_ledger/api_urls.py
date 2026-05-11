@@ -93,6 +93,13 @@ urlpatterns = [
     path('errors/<str:error_id>/', api.ErrorReportDetailAPI.as_view(), name='api_error_detail'),
     # GET   — list open auto-reported GitHub issues (staff only)
     path('errors/issues/', api.ErrorIssueListAPI.as_view(), name='api_error_issues'),
+
+    # ── Background Task Monitoring ────────────────────────────────────────
+    path('tasks/<uuid:pk>/', api.TaskStatusAPI.as_view(), name='api_task_status'),
+    path('episodes/<uuid:episode_id>/tasks/', api.EpisodeTasksAPI.as_view(), name='api_episode_tasks'),
+
+    # ── AI Configuration Status ───────────────────────────────────────────
+    path('ai/status/', api.AIStatusAPI.as_view(), name='api_ai_status'),
     # POST  — dismiss / close a GitHub error issue (staff only)
     path('errors/issues/<int:issue_number>/dismiss/', api.ErrorIssueDismissAPI.as_view(), name='api_error_dismiss'),
 ]

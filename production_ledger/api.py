@@ -825,20 +825,25 @@ class UploadVideoAPI(APIView):
 
         # Optionally trigger transcription
         if auto_transcribe:
-            import threading  # noqa: PLC0415
+            from .services.tasks import run_background_task  # noqa: PLC0415
+            from .models import BackgroundTask  # noqa: PLC0415
 
             def _run(asset_pk, user):
-                import django.db  # noqa: PLC0415
-                try:
-                    asset = MediaAsset.objects.get(pk=asset_pk)
-                    transcription_svc.transcribe_media_asset(asset, user=user)
-                except Exception:
-                    pass
-                finally:
-                    django.db.connection.close()
+                from .models import MediaAsset as _MA  # noqa: PLC0415
+                asset = _MA.objects.get(pk=asset_pk)
+                transcription_svc.transcribe_media_asset(asset, user=user)
 
-            threading.Thread(target=_run, args=(media_asset.pk, request.user), daemon=True).start()
+            bg_task = run_background_task(
+                task_type=BackgroundTask.TASK_TRANSCRIPTION,
+                label=f'Auto-transcribe: {label}',
+                fn=_run,
+                episode=episode,
+                created_by=request.user,
+                asset_pk=media_asset.pk,
+                user=request.user,
+            )
             result['transcription_status'] = 'started'
+            result['task_id'] = str(bg_task.pk)
 
         return Response(result, status=status.HTTP_201_CREATED)
 
@@ -862,24 +867,28 @@ class TranscribeMediaAssetAPI(APIView):
         if not has_minimum_role(request.user, media_asset.episode.show, Role.PRODUCER):
             return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
 
-        import threading  # noqa: PLC0415
+        from .services.tasks import run_background_task  # noqa: PLC0415
+        from .models import BackgroundTask  # noqa: PLC0415
 
         def _run(asset_pk, user):
-            import django.db  # noqa: PLC0415
-            try:
-                asset = MediaAsset.objects.get(pk=asset_pk)
-                transcription_svc.transcribe_media_asset(asset, user=user)
-            except Exception:
-                pass
-            finally:
-                django.db.connection.close()
+            from .models import MediaAsset as _MA  # noqa: PLC0415
+            asset = _MA.objects.get(pk=asset_pk)
+            transcription_svc.transcribe_media_asset(asset, user=user)
 
-        t = threading.Thread(target=_run, args=(media_asset.pk, request.user), daemon=True)
-        t.start()
+        bg_task = run_background_task(
+            task_type=BackgroundTask.TASK_TRANSCRIPTION,
+            label=f'Transcribe: {media_asset.label or media_asset.filename or str(media_asset.pk)[:8]}',
+            fn=_run,
+            episode=media_asset.episode,
+            created_by=request.user,
+            asset_pk=media_asset.pk,
+            user=request.user,
+        )
 
         return Response(
             {'status': 'started', 'media_asset_id': str(media_asset.pk),
-             'message': 'Transcription started in background. Poll ingestion_status for completion.'},
+             'task_id': str(bg_task.pk),
+             'message': 'Transcription started in background. Poll /api/tasks/<task_id>/ for status.'},
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -1087,30 +1096,32 @@ class PublishEpisodeAudioAPI(APIView):
             return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         if rebuild_feed:
-            import threading  # noqa: PLC0415
-            import django  # noqa: PLC0415
+            from .services.tasks import run_background_task  # noqa: PLC0415
+            from .models import BackgroundTask  # noqa: PLC0415
             _show_pk = str(episode.show.pk)
             _user_pk = request.user.pk
 
-            def _bg_rebuild():
-                import logging as _log  # noqa: PLC0415
-                _logger = _log.getLogger(__name__)
-                try:
-                    from django.contrib.auth import get_user_model  # noqa: PLC0415
-                    from .models import Show as _Show  # noqa: PLC0415
-                    from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
-                    _build(_Show.objects.get(pk=_show_pk), user=get_user_model().objects.get(pk=_user_pk))
-                except Exception:
-                    _logger.exception('Background API feed rebuild failed for show %s', _show_pk)
-                finally:
-                    django.db.connections.close_all()
+            def _bg_rebuild(show_pk, user_pk):
+                from django.contrib.auth import get_user_model  # noqa: PLC0415
+                from .models import Show as _Show  # noqa: PLC0415
+                from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
+                _build(_Show.objects.get(pk=show_pk), user=get_user_model().objects.get(pk=user_pk))
 
-            threading.Thread(target=_bg_rebuild, daemon=True).start()
+            bg_task = run_background_task(
+                task_type=BackgroundTask.TASK_FEED_REBUILD,
+                label=f'RSS feed rebuild: {episode.show.title if hasattr(episode.show, "title") else _show_pk}',
+                fn=_bg_rebuild,
+                episode=episode,
+                created_by=request.user,
+                show_pk=_show_pk,
+                user_pk=_user_pk,
+            )
 
         return Response({
             'audio_url': result['audio_url'],
             'distribution_count': len(result['distributions']),
             'feed_rebuild': 'queued' if rebuild_feed else 'skipped',
+            'feed_task_id': str(bg_task.pk) if rebuild_feed else None,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -1257,16 +1268,33 @@ class IdentifyShortsAPI(APIView):
                 finally:
                     django.db.connections.close_all()
 
-            thread = threading.Thread(
-                target=_run_background,
-                args=(str(episode.pk), request.user.pk, aspect_ratio, max_clips),
-                daemon=True,
+            from .services.tasks import run_background_task as _run_bg_task  # noqa: PLC0415
+            from .models import BackgroundTask as _BT  # noqa: PLC0415
+
+            def _bg_identify(ep_pk, user_pk, aspect_ratio, max_clips):
+                from django.contrib.auth import get_user_model as _gum  # noqa: PLC0415
+                from .models import Episode as _Ep  # noqa: PLC0415
+                user = _gum().objects.get(pk=user_pk)
+                ep = _Ep.objects.get(pk=ep_pk)
+                identify_and_queue_shorts(ep, transcript=None, aspect_ratio=aspect_ratio,
+                                          max_clips=max_clips, user=user)
+
+            bg_task = _run_bg_task(
+                task_type=_BT.TASK_SHORT_IDENTIFY,
+                label=f'AI short identification: {episode.title[:50]}',
+                fn=_bg_identify,
+                episode=episode,
+                created_by=request.user,
+                ep_pk=str(episode.pk),
+                user_pk=request.user.pk,
+                aspect_ratio=aspect_ratio,
+                max_clips=max_clips,
             )
-            thread.start()
             return Response(
                 {
                     'status': 'started',
-                    'message': 'Transcript generation and short identification have started in the background. Refresh the page when it completes.',
+                    'task_id': str(bg_task.pk),
+                    'message': 'Short identification started in the background. Poll /api/tasks/<task_id>/ for status.',
                 },
                 status=status.HTTP_202_ACCEPTED,
             )
@@ -1790,5 +1818,151 @@ class ErrorIssueDismissAPI(APIView):
         )
         close_issue(issue_number, comment=comment)
         return Response({'status': 'closed', 'issue_number': issue_number})
+
+
+# =============================================================================
+# BACKGROUND TASK MONITORING
+# =============================================================================
+
+class TaskStatusAPI(APIView):
+    """
+    GET /api/tasks/<pk>/
+
+    Returns the current status, label, error_message, and timing for a
+    BackgroundTask.  Only accessible within the same org.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        from .models import BackgroundTask  # noqa: PLC0415
+
+        task = get_object_or_404(BackgroundTask, pk=pk)
+        org_uuid = get_user_organization_uuid(request.user)
+        if org_uuid and str(task.organization_uuid) != str(org_uuid):
+            raise PermissionDenied
+
+        return Response(_serialize_task(task))
+
+
+class EpisodeTasksAPI(APIView):
+    """
+    GET /api/episodes/<episode_id>/tasks/
+
+    Lists recent BackgroundTasks for an episode.  The frontend polls this
+    endpoint to discover when a running task completes, fails, or times out.
+
+    Query params:
+        status  — filter by status (e.g. ?status=running)
+        limit   — max tasks to return (default 20)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, episode_id):
+        from .models import BackgroundTask  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        org_uuid = get_user_organization_uuid(request.user)
+        if org_uuid and str(episode.organization_uuid) != str(org_uuid):
+            raise PermissionDenied
+
+        qs = BackgroundTask.objects.filter(episode=episode).order_by('-created_at')
+
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        limit = min(int(request.query_params.get('limit', 20)), 100)
+        tasks = list(qs[:limit])
+
+        return Response({
+            'tasks': [_serialize_task(t) for t in tasks],
+            'has_running': any(t.status == BackgroundTask.STATUS_RUNNING for t in tasks),
+            'has_pending': any(t.status == BackgroundTask.STATUS_PENDING for t in tasks),
+        })
+
+
+class AIStatusAPI(APIView):
+    """
+    GET /api/ai/status/
+
+    Returns the current AI provider configuration and whether it is properly
+    set up.  Helps the user diagnose why AI features return mock responses.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        import os  # noqa: PLC0415
+        from .services.ai import get_ai_config  # noqa: PLC0415
+
+        config = get_ai_config()
+        provider = config.get('provider', 'mock')
+        api_key = config.get('api_key', '')
+
+        # Check DigitalOcean path used by shorts service
+        do_key = os.environ.get('DIGITALOCEAN_LLM_API_KEY', '')
+        do_endpoint = os.environ.get('DIGITALOCEAN_LLM_ENDPOINT', '')
+
+        # Resolve effective provider the same way shorts.py does
+        explicit_provider = os.environ.get('AI_PROVIDER', '').lower()
+        effective_provider = explicit_provider or ('digitalocean' if do_key else 'mock')
+
+        warnings = []
+        if effective_provider == 'mock':
+            warnings.append(
+                "AI is running in MOCK mode — all AI outputs are placeholder text. "
+                "Set AI_PROVIDER=openai and AI_API_KEY, or set DIGITALOCEAN_LLM_API_KEY "
+                "to enable real AI generation."
+            )
+        elif effective_provider == 'openai' and not api_key:
+            warnings.append(
+                "AI_PROVIDER is set to 'openai' but AI_API_KEY is empty. "
+                "AI calls will fail. Add your OpenAI key in Settings → API Keys."
+            )
+        elif effective_provider == 'digitalocean' and not do_key:
+            warnings.append(
+                "AI_PROVIDER is set to 'digitalocean' but DIGITALOCEAN_LLM_API_KEY is empty. "
+                "AI calls will fail."
+            )
+
+        # Check org-level OpenAI key stored in DB
+        org_uuid = get_user_organization_uuid(request.user)
+        db_key_configured = False
+        if org_uuid:
+            from .models import OrgAPIKey  # noqa: PLC0415
+            db_key_configured = OrgAPIKey.objects.filter(
+                organization_uuid=org_uuid,
+                service=OrgAPIKey.SERVICE_OPENAI,
+            ).exists()
+
+        return Response({
+            'effective_provider': effective_provider,
+            'configured_provider': provider,
+            'api_key_set': bool(api_key or do_key),
+            'do_endpoint': do_endpoint or None,
+            'model': config.get('model'),
+            'db_openai_key_configured': db_key_configured,
+            'is_mock': effective_provider == 'mock',
+            'warnings': warnings,
+        })
+
+
+def _serialize_task(task) -> dict:
+    """Serialize a BackgroundTask for API responses."""
+    return {
+        'id': str(task.id),
+        'task_type': task.task_type,
+        'task_type_label': task.get_task_type_display(),
+        'status': task.status,
+        'status_label': task.get_status_display(),
+        'label': task.label,
+        'error_message': task.error_message or None,
+        'started_at': task.started_at.isoformat() if task.started_at else None,
+        'completed_at': task.completed_at.isoformat() if task.completed_at else None,
+        'duration_seconds': task.duration_seconds,
+        'is_terminal': task.is_terminal,
+        'created_at': task.created_at.isoformat(),
+        'episode_id': str(task.episode_id) if task.episode_id else None,
+    }
+
 
 
