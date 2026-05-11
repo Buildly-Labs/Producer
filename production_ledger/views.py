@@ -958,6 +958,16 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
             ).values('pk', 'label', 'ingestion_status')
         )
 
+        # Recently failed extraction assets — show error banner
+        from django.utils import timezone as _tz  # noqa: PLC0415
+        import datetime as _dt  # noqa: PLC0415
+        context['failed_extraction_assets'] = list(
+            episode.media_assets.filter(
+                ingestion_status=IngestionStatus.FAILED,
+                created_at__gte=_tz.now() - _dt.timedelta(hours=2),
+            ).order_by('-created_at').values('pk', 'label', 'error_message')[:3]
+        )
+
         try:
             context['podcast_feed_config'] = episode.show.podcast_feed_config
         except Exception:
@@ -1320,6 +1330,7 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                 from .services.distribution import publish_episode_audio as _pub, build_and_publish_feed as _feed  # noqa: PLC0415
 
                 audio_path = None
+                asset = None
                 try:
                     asset = _MA.objects.get(pk=asset_pk)
                     asset.ingestion_status = _IS.PROCESSING
@@ -1361,6 +1372,22 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                         _feed(ep.show, user=user)
                     except Exception as feed_exc:
                         logger.warning("Feed rebuild failed after audio extraction: %s", feed_exc)
+
+                except Exception as exc:
+                    # Mark the asset as failed so the UI polling loop exits
+                    # instead of spinning forever showing "X minutes to complete".
+                    try:
+                        if asset is None:
+                            asset = _MA.objects.get(pk=asset_pk)
+                        asset.ingestion_status = _IS.FAILED
+                        asset.error_message = str(exc)[:2000]
+                        asset.save(update_fields=['ingestion_status', 'error_message'])
+                    except Exception as save_exc:
+                        logger.error(
+                            "Failed to mark asset %s as failed after extraction error: %s",
+                            asset_pk, save_exc,
+                        )
+                    raise  # re-raise so the watchdog records it on BackgroundTask too
 
                 finally:
                     if audio_path:

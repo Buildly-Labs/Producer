@@ -84,7 +84,9 @@
             await Promise.all(jobs.map(checkJob));
             const stillRunning = jobs.some(j => j.status === 'pending' || j.status === 'processing');
             if (!stillRunning) {
-                window.location.reload();
+                const anyFailed = jobs.some(j => j.status === 'failed');
+                // Give the user a moment to read the error before reloading
+                setTimeout(() => window.location.reload(), anyFailed ? 4000 : 800);
             } else {
                 setTimeout(poll, 4000);
             }
@@ -92,6 +94,24 @@
         setTimeout(poll, 4000);
     })();
     </script>
+    {% endif %}
+
+    {% if failed_extraction_assets %}
+    <!-- ═══════════════════════════════════════════
+         FAILED EXTRACTION BANNER
+    ═══════════════════════════════════════════ -->
+    <div class="flex items-start gap-3 p-4 bg-red-950/40 border border-red-700 rounded-xl text-sm">
+        <svg class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        </svg>
+        <div class="flex-1">
+            <p class="font-semibold text-red-300">Audio extraction failed</p>
+            {% for a in failed_extraction_assets %}
+            <p class="text-slate-200 text-xs mt-1"><span class="font-medium">{{ a.label }}</span>{% if a.error_message %}: <span class="text-red-300">{{ a.error_message }}</span>{% endif %}</p>
+            {% endfor %}
+            <p class="text-slate-400 text-xs mt-2">Please check the video asset URL and try again. If the video file is on YouTube or Vimeo, upload it directly to the Media Library first.</p>
+        </div>
+    </div>
     {% endif %}
 
     <!-- ═══════════════════════════════════════════
