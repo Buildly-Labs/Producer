@@ -1090,13 +1090,34 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                 count += 1
 
             if request.POST.get('rebuild_feed'):
-                try:
-                    from .services.distribution import build_and_publish_feed  # noqa: PLC0415
-                    build_and_publish_feed(episode.show, user=request.user)
-                except Exception as exc:
-                    messages.warning(request, f'Distributions updated, but feed rebuild failed: {exc}')
+                import threading  # noqa: PLC0415
+                import django  # noqa: PLC0415
 
-            messages.success(request, f'Audio asset published to {count} platform record(s).')
+                def _rebuild_feed(show_id, user_id):
+                    import logging  # noqa: PLC0415
+                    logger = logging.getLogger(__name__)
+                    from django.contrib.auth import get_user_model  # noqa: PLC0415
+                    from .models import Show as _Show  # noqa: PLC0415
+                    from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
+
+                    try:
+                        User = get_user_model()
+                        user = User.objects.get(pk=user_id)
+                        show = _Show.objects.get(pk=show_id)
+                        _build(show, user=user)
+                    except Exception as exc:
+                        logger.exception('Background feed rebuild failed for show %s', show_id)
+                    finally:
+                        django.db.connections.close_all()
+
+                threading.Thread(
+                    target=_rebuild_feed,
+                    args=(str(episode.show.pk), request.user.pk),
+                    daemon=True,
+                ).start()
+                messages.info(request, 'Distributions updated. RSS feed rebuild started in the background.')
+            else:
+                messages.success(request, f'Audio asset published to {count} platform record(s).')
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
         if action == 'publish_video_from_asset':
@@ -1391,10 +1412,37 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
             return redirect('production_ledger:episode_publish', pk=episode.pk)
 
         if rebuild_feed:
-            try:
-                build_and_publish_feed(episode.show, user=request.user)
-            except Exception as exc:
-                messages.warning(request, f'Audio uploaded, but feed rebuild failed: {exc}')
+            import threading  # noqa: PLC0415
+            import django  # noqa: PLC0415
+
+            def _rebuild_feed(show_id, user_id):
+                import logging  # noqa: PLC0415
+                logger = logging.getLogger(__name__)
+                from django.contrib.auth import get_user_model  # noqa: PLC0415
+                from .models import Show as _Show  # noqa: PLC0415
+                from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
+
+                try:
+                    User = get_user_model()
+                    user = User.objects.get(pk=user_id)
+                    show = _Show.objects.get(pk=show_id)
+                    _build(show, user=user)
+                except Exception as exc:
+                    logger.exception('Background feed rebuild failed for show %s', show_id)
+                finally:
+                    django.db.connections.close_all()
+
+            threading.Thread(
+                target=_rebuild_feed,
+                args=(str(episode.show.pk), request.user.pk),
+                daemon=True,
+            ).start()
+            messages.info(request, 'Audio uploaded. RSS feed rebuild started in the background.')
+        else:
+            messages.success(
+                request,
+                f"Audio published to {len(result['distributions'])} platform records.",
+            )
 
         if episode.status == EpisodeStatus.APPROVED and episode.is_checklist_complete():
             try:
@@ -1403,10 +1451,6 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                 # Keep publishing successful even if status transition is blocked.
                 pass
 
-        messages.success(
-            request,
-            f"Audio published to {len(result['distributions'])} platform records.",
-        )
         return redirect('production_ledger:episode_publish', pk=episode.pk)
 
 

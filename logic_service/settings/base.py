@@ -57,6 +57,8 @@ INSTALLED_APPS = INSTALLED_APPS_DJANGO + INSTALLED_APPS_THIRD_PARTIES + \
     INSTALLED_APPS_LOCAL
 
 MIDDLEWARE = [
+    # Error-reporting middleware must be first so it catches all exceptions.
+    'production_ledger.error_middleware.ErrorReportingMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -169,6 +171,15 @@ DIGITALOCEAN_LLM_ENDPOINT = os.environ.get('DIGITALOCEAN_LLM_ENDPOINT')
 # OrgAPIKey model (via Settings → API Keys in the Producer UI).
 # The OrgAPIKey value takes precedence over the environment variable.
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+
+# GitHub error reporting
+# Fine-grained PAT or classic PAT with repo/issues:write scope.
+# Leave empty to disable the "Report to GitHub" button on error pages.
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+# Format: "owner/repo"  e.g. "buildly-inc/producer"
+GITHUB_REPO  = os.environ.get('GITHUB_REPO', '')
+# How long (seconds) to keep error snapshots in the cache (default 1 hour).
+ERROR_REPORT_CACHE_TTL = int(os.environ.get('ERROR_REPORT_CACHE_TTL', 3600))
 
 
 # Rest Framework

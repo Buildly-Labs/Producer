@@ -85,4 +85,14 @@ urlpatterns = [
 
     # TTS Intro Preview
     path('episodes/<uuid:pk>/intro-preview/', api.IntroPreviewAPI.as_view(), name='api_intro_preview'),
+
+    # ── Error Reporting ───────────────────────────────────────────────────
+    # POST  — submit a captured error to GitHub Issues
+    path('errors/report/', api.ErrorReportCreateAPI.as_view(), name='api_error_report'),
+    # GET   — retrieve raw error detail from cache (staff only)
+    path('errors/<str:error_id>/', api.ErrorReportDetailAPI.as_view(), name='api_error_detail'),
+    # GET   — list open auto-reported GitHub issues (staff only)
+    path('errors/issues/', api.ErrorIssueListAPI.as_view(), name='api_error_issues'),
+    # POST  — dismiss / close a GitHub error issue (staff only)
+    path('errors/issues/<int:issue_number>/dismiss/', api.ErrorIssueDismissAPI.as_view(), name='api_error_dismiss'),
 ]

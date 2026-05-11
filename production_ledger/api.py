@@ -1086,17 +1086,31 @@ class PublishEpisodeAudioAPI(APIView):
         except Exception as exc:
             return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        feed_url = None
         if rebuild_feed:
-            try:
-                feed_url = build_and_publish_feed(episode.show, user=request.user)
-            except Exception as exc:
-                feed_url = f'Feed rebuild failed: {exc}'
+            import threading  # noqa: PLC0415
+            import django  # noqa: PLC0415
+            _show_pk = str(episode.show.pk)
+            _user_pk = request.user.pk
+
+            def _bg_rebuild():
+                import logging as _log  # noqa: PLC0415
+                _logger = _log.getLogger(__name__)
+                try:
+                    from django.contrib.auth import get_user_model  # noqa: PLC0415
+                    from .models import Show as _Show  # noqa: PLC0415
+                    from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
+                    _build(_Show.objects.get(pk=_show_pk), user=get_user_model().objects.get(pk=_user_pk))
+                except Exception:
+                    _logger.exception('Background API feed rebuild failed for show %s', _show_pk)
+                finally:
+                    django.db.connections.close_all()
+
+            threading.Thread(target=_bg_rebuild, daemon=True).start()
 
         return Response({
             'audio_url': result['audio_url'],
             'distribution_count': len(result['distributions']),
-            'feed_url': feed_url,
+            'feed_rebuild': 'queued' if rebuild_feed else 'skipped',
         }, status=status.HTTP_201_CREATED)
 
 
@@ -1664,4 +1678,117 @@ class IntroPreviewAPI(APIView):
             'model':    model,
             'engine':   used_engine,
         }, status=status.HTTP_200_OK)
+
+
+# ===========================================================================
+# Error Reporting API
+# ===========================================================================
+
+class ErrorReportCreateAPI(APIView):
+    """
+    POST /api/errors/report/
+
+    Create a GitHub issue for a captured error.  The error details are
+    retrieved from the Django cache using the error_id set by
+    ErrorReportingMiddleware.
+
+    Body (JSON):
+        error_id   — 12-char ID shown on the error page  (required)
+        user_note  — optional free-text note from the user
+
+    Returns:
+        {issue_number, issue_url, issue_title}
+    """
+    # Allow unauthenticated users to report errors — they may not be logged in.
+    permission_classes = []
+
+    def post(self, request):
+        from .error_middleware import get_error  # noqa: PLC0415
+        from .services.error_reporter import create_error_issue  # noqa: PLC0415
+
+        error_id  = request.data.get('error_id', '').strip()
+        user_note = request.data.get('user_note', '').strip()[:1000]
+
+        if not error_id:
+            return Response({'error': 'error_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        error_data = get_error(error_id)
+        if not error_data:
+            return Response(
+                {'error': 'Error details not found or have expired. Please reload and try again.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            result = create_error_issue(error_id, error_data, user_note=user_note)
+        except RuntimeError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
+class ErrorReportDetailAPI(APIView):
+    """
+    GET /api/errors/<error_id>/
+
+    Retrieve raw error details from the cache (developer use only).
+    Requires staff status.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, error_id):
+        if not request.user.is_staff:
+            return Response({'error': 'Staff access required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .error_middleware import get_error  # noqa: PLC0415
+
+        data = get_error(error_id)
+        if data is None:
+            return Response({'error': 'Not found or expired.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error_id': error_id, **data})
+
+
+class ErrorIssueListAPI(APIView):
+    """
+    GET /api/errors/issues/
+
+    Returns open GitHub issues tagged ``auto-reported``.
+    Staff only.  Uses GITHUB_TOKEN + GITHUB_REPO settings.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_staff:
+            return Response({'error': 'Staff access required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .services.error_reporter import list_open_error_issues  # noqa: PLC0415
+
+        issues = list_open_error_issues()
+        return Response({'issues': issues, 'count': len(issues)})
+
+
+class ErrorIssueDismissAPI(APIView):
+    """
+    POST /api/errors/issues/<issue_number>/dismiss/
+
+    Close a GitHub error issue (dismiss without fixing) or mark resolved.
+    Staff only.
+
+    Body (JSON):
+        comment  — optional comment to add before closing  (default: 'Dismissed by developer.')
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, issue_number: int):
+        if not request.user.is_staff:
+            return Response({'error': 'Staff access required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .services.error_reporter import close_issue  # noqa: PLC0415
+
+        comment = request.data.get('comment', '').strip() or (
+            f'Dismissed by {request.user} via ProducerForge developer panel.'
+        )
+        close_issue(issue_number, comment=comment)
+        return Response({'status': 'closed', 'issue_number': issue_number})
+
 
