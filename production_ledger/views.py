@@ -1751,14 +1751,24 @@ class EpisodeClipsView(EpisodeTabMixin, TemplateView):
         context['latest_transcript'] = episode.transcripts.order_by('-revision').first()
         context['clip_form'] = ClipMomentForm()
         context['priorities'] = ClipPriority.CHOICES
-        # Running identification task — used to render the progress banner
-        context['running_identify_task'] = (
-            BackgroundTask.objects.filter(
-                episode=episode,
-                task_type=BackgroundTask.TASK_SHORT_IDENTIFY,
-                status__in=[BackgroundTask.STATUS_PENDING, BackgroundTask.STATUS_RUNNING],
-            ).order_by('-created_at').first()
-        )
+        # Running identification task — used to render the progress banner.
+        # Wrapped in try/except because the BackgroundTask table schema on some
+        # live deployments may be missing the episode_id FK column if the table
+        # was created outside Django's migration system.
+        try:
+            context['running_identify_task'] = (
+                BackgroundTask.objects.filter(
+                    episode=episode,
+                    task_type=BackgroundTask.TASK_SHORT_IDENTIFY,
+                    status__in=[BackgroundTask.STATUS_PENDING, BackgroundTask.STATUS_RUNNING],
+                ).order_by('-created_at').first()
+            )
+        except Exception:
+            logger.warning(
+                'BackgroundTask query failed in EpisodeClipsView — table may have schema drift',
+                exc_info=True,
+            )
+            context['running_identify_task'] = None
         return context
     
     def post(self, request, *args, **kwargs):
