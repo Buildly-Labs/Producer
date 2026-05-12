@@ -952,6 +952,29 @@ class EpisodePublishView(EpisodeTabMixin, TemplateView):
                 )
                 asset.save(update_fields=['ingestion_status', 'error_message'])
 
+        # Auto-expire assets stuck in PENDING/PROCESSING for more than 2 hours.
+        # This handles orphaned rows that survived container restarts and were
+        # not caught by the fix_stuck_tasks startup command.
+        import datetime as _dt  # noqa: PLC0415
+        from django.utils import timezone as _tz  # noqa: PLC0415
+        _stuck_cutoff = _tz.now() - _dt.timedelta(hours=2)
+        _zombie_qs = episode.media_assets.filter(
+            ingestion_status__in=[IngestionStatus.PENDING, IngestionStatus.PROCESSING],
+            created_at__lt=_stuck_cutoff,
+        )
+        if _zombie_qs.exists():
+            _zombie_qs.update(
+                ingestion_status=IngestionStatus.FAILED,
+                error_message=(
+                    'Extraction was interrupted (server restart or timeout). '
+                    'Please retry.'
+                ),
+            )
+            logger.warning(
+                '[publish] Auto-expired stuck processing assets for episode %s (older than 2h)',
+                episode.pk,
+            )
+
         # Assets currently being processed in background — page will auto-refresh
         context['processing_assets'] = list(
             episode.media_assets.filter(

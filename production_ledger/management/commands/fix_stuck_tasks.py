@@ -38,10 +38,12 @@ class Command(BaseCommand):
         total_fixed = 0
 
         # ── 1. Stuck MediaAsset audio extractions ──────────────────────────
+        # Clear ALL stuck pending/processing assets regardless of type — not
+        # just audio.  A video being transcoded, or any other asset type, can
+        # also be orphaned by a container restart.
         stuck_assets = MediaAsset.objects.filter(
             ingestion_status__in=[IngestionStatus.PENDING, IngestionStatus.PROCESSING],
             created_at__lt=cutoff,
-            asset_type='audio',
         )
         count = stuck_assets.count()
         if count:

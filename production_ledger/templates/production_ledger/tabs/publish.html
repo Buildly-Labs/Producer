@@ -54,6 +54,13 @@
                     if (d.status === 'processing' || d.status === 'pending') {
                         const elapsed = d.elapsed_seconds || 0;
                         const estimate = d.estimated_seconds || 180;
+                        // If way past estimate this task is orphaned — reload to let the
+                        // server-side zombie cleanup (in the view) mark it failed.
+                        if (elapsed > Math.max(estimate * 3, 3600)) {
+                            subtext.textContent = 'Taking much longer than expected — reloading…';
+                            setTimeout(() => window.location.reload(), 2000);
+                            return job.status;
+                        }
                         subtext.textContent = `Elapsed ${formatDuration(elapsed)} · Estimated ${formatDuration(estimate)}`;
                     } else if (d.status === 'ready') {
                         subtext.textContent = 'Completed successfully.';
