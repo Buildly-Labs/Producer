@@ -13,33 +13,41 @@ class Migration(migrations.Migration):
         ('production_ledger', '0016_orgapikey'),
     ]
 
+    # SeparateDatabaseAndState: table and indexes already exist in production
+    # from a previous partial run. Update Django's migration state only — run
+    # no SQL — so subsequent deploys don't fail with "Table already exists".
     operations = [
-        migrations.CreateModel(
-            name='BackgroundTask',
-            fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('organization_uuid', models.UUIDField(db_index=True, default=uuid.uuid4)),
-                ('task_type', models.CharField(choices=[('ai_generate', 'AI Generate'), ('audio_extract', 'Audio Extraction'), ('transcription', 'Transcription'), ('short_identify', 'Short Identification'), ('feed_rebuild', 'RSS Feed Rebuild'), ('publish', 'Publish')], db_index=True, max_length=50)),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed'), ('timeout', 'Timed Out')], db_index=True, default='pending', max_length=20)),
-                ('label', models.CharField(default='', max_length=255)),
-                ('started_at', models.DateTimeField(blank=True, null=True)),
-                ('completed_at', models.DateTimeField(blank=True, null=True)),
-                ('error_message', models.TextField(blank=True, default='')),
-                ('metadata', models.JSONField(default=dict)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='background_tasks', to=settings.AUTH_USER_MODEL)),
-                ('episode', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='background_tasks', to='production_ledger.episode')),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],  # touch nothing in the DB
+            state_operations=[
+                migrations.CreateModel(
+                    name='BackgroundTask',
+                    fields=[
+                        ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                        ('organization_uuid', models.UUIDField(db_index=True, default=uuid.uuid4)),
+                        ('task_type', models.CharField(choices=[('ai_generate', 'AI Generate'), ('audio_extract', 'Audio Extraction'), ('transcription', 'Transcription'), ('short_identify', 'Short Identification'), ('feed_rebuild', 'RSS Feed Rebuild'), ('publish', 'Publish')], db_index=True, max_length=50)),
+                        ('status', models.CharField(choices=[('pending', 'Pending'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed'), ('timeout', 'Timed Out')], db_index=True, default='pending', max_length=20)),
+                        ('label', models.CharField(default='', max_length=255)),
+                        ('started_at', models.DateTimeField(blank=True, null=True)),
+                        ('completed_at', models.DateTimeField(blank=True, null=True)),
+                        ('error_message', models.TextField(blank=True, default='')),
+                        ('metadata', models.JSONField(default=dict)),
+                        ('created_at', models.DateTimeField(auto_now_add=True)),
+                        ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='background_tasks', to=settings.AUTH_USER_MODEL)),
+                        ('episode', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='background_tasks', to='production_ledger.episode')),
+                    ],
+                    options={
+                        'ordering': ['-created_at'],
+                    },
+                ),
+                migrations.AddIndex(
+                    model_name='backgroundtask',
+                    index=models.Index(fields=['organization_uuid', 'status'], name='production__organiz_64012c_idx'),
+                ),
+                migrations.AddIndex(
+                    model_name='backgroundtask',
+                    index=models.Index(fields=['episode', 'status'], name='production__episode_ae2912_idx'),
+                ),
             ],
-            options={
-                'ordering': ['-created_at'],
-            },
-        ),
-        migrations.AddIndex(
-            model_name='backgroundtask',
-            index=models.Index(fields=['organization_uuid', 'status'], name='production__organiz_64012c_idx'),
-        ),
-        migrations.AddIndex(
-            model_name='backgroundtask',
-            index=models.Index(fields=['episode', 'status'], name='production__episode_ae2912_idx'),
         ),
     ]
