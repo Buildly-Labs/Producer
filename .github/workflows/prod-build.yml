@@ -12,7 +12,7 @@ jobs:
     env:
       IMAGE_NAME: us-docker.pkg.dev/dev-buildly/gcr.io/prod-{{ env.container_name }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
