@@ -16,10 +16,12 @@ from .models import (
     Guest,
     MediaAsset,
     Segment,
+    SegmentTemplate,
     Show,
     ShowNoteDraft,
     ShowNoteFinal,
     ShowRoleAssignment,
+    Sponsor,
     Transcript,
 )
 
@@ -84,7 +86,7 @@ class ShowAdmin(BaseModelAdmin):
             'fields': ('name', 'slug', 'description', 'organization_uuid')
         }),
         ('Branding', {
-            'fields': ('brand_primary_color', 'default_intro_text', 'default_outro_text'),
+            'fields': ('brand_primary_color', 'logo', 'second_screen_background', 'default_intro_text', 'default_outro_text'),
             'classes': ('collapse',),
         }),
         ('Metadata', {
@@ -176,11 +178,31 @@ class EpisodeAdmin(BaseModelAdmin):
 
 @admin.register(Segment)
 class SegmentAdmin(BaseModelAdmin):
-    list_display = ('title', 'episode', 'order', 'timebox_minutes', 'owner_role')
+    list_display = ('title', 'episode', 'order', 'timebox_minutes', 'owner_role', 'sponsor')
     list_filter = ('owner_role', 'episode__show')
     search_fields = ('title', 'episode__title')
     ordering = ['episode', 'order']
-    autocomplete_fields = ['episode']
+    autocomplete_fields = ['episode', 'sponsor']
+
+
+@admin.register(SegmentTemplate)
+class SegmentTemplateAdmin(BaseModelAdmin):
+    list_display = ('title', 'show', 'timebox_minutes', 'owner_role', 'sponsor', 'is_active')
+    list_filter = ('is_active', 'owner_role', 'show')
+    search_fields = ('title', 'show__name')
+    autocomplete_fields = ['show', 'sponsor']
+
+
+# =============================================================================
+# SPONSOR
+# =============================================================================
+
+@admin.register(Sponsor)
+class SponsorAdmin(BaseModelAdmin):
+    list_display = ('name', 'show', 'website_url', 'is_active')
+    list_filter = ('is_active', 'show')
+    search_fields = ('name', 'show__name', 'website_url')
+    autocomplete_fields = ['show']
 
 
 # =============================================================================

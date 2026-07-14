@@ -25,7 +25,10 @@ schema_view = get_schema_view(
 urlpatterns = [
     # Static files
     re_path(r'^static/(?P<path>.*)$', serve, {'document_root': settings.STATIC_ROOT}),
-    
+
+    # User-uploaded media (show branding, sponsor logos)
+    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+
     # API Documentation
     re_path(r'^docs/swagger(?P<format>\.json|\.yaml)$',
             schema_view.without_ui(cache_timeout=0), name='schema-json'),

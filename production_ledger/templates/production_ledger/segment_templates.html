@@ -1,0 +1,86 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Segment Library - {{ show.name }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <div class="text-sm text-[var(--text-muted)] mb-1">
+            <a href="{% url 'production_ledger:show_detail' show.pk %}" class="hover:text-[var(--text-primary)]">{{ show.name }}</a>
+        </div>
+        <h1 class="text-2xl font-bold text-[var(--text-primary)]">Segment Library</h1>
+        <p class="text-[var(--text-muted)]">Reusable segments for this show's episodes — pick one from the Segments tab when planning an episode, then adjust it freely for that episode.</p>
+    </div>
+
+    <div class="bg-[var(--bg-secondary)] shadow rounded-lg overflow-hidden border border-[var(--border-subtle)]">
+        <ul class="divide-y divide-[var(--border-subtle)]">
+            {% for template in templates %}
+            <li class="px-6 py-4 flex items-center justify-between">
+                <div>
+                    <p class="font-medium text-[var(--text-primary)]">{{ template.title }}</p>
+                    <p class="text-sm text-[var(--text-muted)]">
+                        ⏱️ {{ template.timebox_minutes }} min · 👤 {{ template.get_owner_role_display }}
+                        {% if template.sponsor %} · 💰 {{ template.sponsor.name }}{% endif %}
+                    </p>
+                </div>
+                <div class="flex space-x-3">
+                    <a href="{% url 'production_ledger:segment_template_edit' template.pk %}" class="text-sm text-[var(--accent-primary)] hover:underline">Edit</a>
+                    <form method="post" action="{% url 'production_ledger:segment_template_delete' template.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="text-sm text-[var(--danger)] hover:underline" onclick="return confirm('Delete this segment template? Episodes that already used it keep their own copy.')">Delete</button>
+                    </form>
+                </div>
+            </li>
+            {% empty %}
+            <li class="px-6 py-12 text-center text-[var(--text-muted)]">
+                No reusable segments yet — add one below.
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="bg-[var(--bg-secondary)] rounded-lg shadow p-6 border border-[var(--border-subtle)]">
+        <h3 class="text-lg font-medium text-[var(--text-primary)] mb-4">Add Segment Template</h3>
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="form-label">Title</label>
+                    {{ form.title }}
+                </div>
+                <div>
+                    <label class="form-label">Duration (minutes)</label>
+                    {{ form.timebox_minutes }}
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="form-label">Owner</label>
+                    {{ form.owner_role }}
+                </div>
+                <div>
+                    <label class="form-label">Default Sponsor</label>
+                    {{ form.sponsor }}
+                </div>
+            </div>
+            <div>
+                <label class="form-label">Purpose</label>
+                {{ form.purpose }}
+            </div>
+            <div>
+                <label class="form-label">Bullet Prompts</label>
+                {{ form.bullet_prompts }}
+            </div>
+            <div>
+                <label class="form-label">Key Questions</label>
+                {{ form.key_questions }}
+            </div>
+            <div class="flex justify-end">
+                <button type="submit" class="px-4 py-2 bg-[var(--accent-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--accent-primary-hover)]">
+                    Add to Library
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

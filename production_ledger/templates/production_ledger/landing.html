@@ -89,10 +89,10 @@
                         Go to Dashboard
                     </a>
                     {% else %}
-                    <a href="{% url 'production_ledger:login' %}" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+                    <a href="{% url 'login' %}" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
                         Sign In
                     </a>
-                    <a href="{% url 'production_ledger:register' %}" class="btn btn-primary">
+                    <a href="{% url 'login' %}" class="btn btn-primary">
                         Get Started
                     </a>
                     {% endif %}
@@ -135,7 +135,7 @@
                             </svg>
                         </a>
                         {% else %}
-                        <a href="{% url 'production_ledger:register' %}" class="btn btn-primary btn-lg cta-glow">
+                        <a href="{% url 'login' %}" class="btn btn-primary btn-lg cta-glow">
                             Start Free Trial
                             <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
@@ -355,7 +355,7 @@
                 Go to Dashboard
             </a>
             {% else %}
-            <a href="{% url 'production_ledger:register' %}" class="btn btn-primary btn-lg cta-glow">
+            <a href="{% url 'login' %}" class="btn btn-primary btn-lg cta-glow">
                 Start Your Free Trial
             </a>
             {% endif %}

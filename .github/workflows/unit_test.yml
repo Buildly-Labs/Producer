@@ -19,5 +19,20 @@ jobs:
     - name: Check running containers
       run: docker ps -a
 
+    - name: Wait for logic_service to be ready
+      run: |
+        for i in $(seq 1 30); do
+          if docker compose logs logic_service 2>&1 | grep -q "Running the server"; then
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "logic_service did not become ready in time"
+        docker compose logs logic_service
+        exit 1
+
+    - name: Run Django test suite
+      run: docker compose exec -T logic_service python manage.py test production_ledger.tests
+
     - name: Stop docker container
       run: docker compose down

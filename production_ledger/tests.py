@@ -8,6 +8,7 @@ These tests cover:
 - AI artifact approval workflow
 """
 import uuid
+from django.core.exceptions import ValidationError
 from django.test import TestCase, RequestFactory
 from django.contrib.auth import get_user_model
 from unittest.mock import MagicMock, patch
@@ -20,7 +21,7 @@ from .models import (
 from .constants import EpisodeStatus, Role, ApprovalStatus, ArtifactType
 from .permissions import (
     get_user_role_for_show, has_role, has_minimum_role,
-    can_approve_artifact, can_finalize_show_notes
+    can_approve_ai_artifact, can_approve_show_notes
 )
 from .services.ai import generate_show_notes, generate_questions
 
@@ -111,7 +112,7 @@ class ModelCreationTests(TestCase):
         )
         self.assertEqual(eg.episode, episode)
         self.assertEqual(eg.guest, guest)
-        self.assertIn(guest, episode.guests.all())
+        self.assertIn(guest, [g.guest for g in episode.episode_guests.all()])
     
     def test_ai_artifact_creation(self):
         """AIArtifact can be created with provenance info."""
@@ -131,7 +132,8 @@ class ModelCreationTests(TestCase):
             organization_uuid=self.org_uuid,
             episode=episode,
             artifact_type=ArtifactType.SHOW_NOTES,
-            prompt_text='Generate show notes',
+            input_prompt='Generate show notes',
+            input_context_refs={},
             output_text='These are the show notes...',
             provider='mock',
             model='mock-v1',
@@ -167,10 +169,9 @@ class StatusTransitionTests(TestCase):
     
     def test_valid_transition_draft_to_planned(self):
         """Valid transition from draft to planned succeeds."""
-        success, msg = self.episode.transition_to(EpisodeStatus.PLANNED, self.user)
-        self.assertTrue(success)
+        self.episode.transition_to(EpisodeStatus.PLANNED, self.user)
         self.assertEqual(self.episode.status, EpisodeStatus.PLANNED)
-    
+
     def test_valid_transition_sequence(self):
         """Episode can follow the normal workflow sequence."""
         transitions = [
@@ -182,25 +183,24 @@ class StatusTransitionTests(TestCase):
             EpisodeStatus.EDITED,
         ]
         for new_status in transitions:
-            success, msg = self.episode.transition_to(new_status, self.user)
-            self.assertTrue(success, f"Failed transition to {new_status}: {msg}")
+            self.episode.transition_to(new_status, self.user)
             self.assertEqual(self.episode.status, new_status)
-    
+
     def test_invalid_transition_blocked(self):
         """Invalid status transition is blocked."""
         # Cannot go directly from draft to published
-        success, msg = self.episode.transition_to(EpisodeStatus.PUBLISHED, self.user)
-        self.assertFalse(success)
+        with self.assertRaises(ValidationError):
+            self.episode.transition_to(EpisodeStatus.PUBLISHED, self.user)
         self.assertEqual(self.episode.status, EpisodeStatus.DRAFT)
-    
+
     def test_approved_requires_checklist(self):
         """Transition to approved requires checklist completion."""
         # Progress episode to edited
-        for status in [EpisodeStatus.PLANNED, EpisodeStatus.SCHEDULED, 
+        for status in [EpisodeStatus.PLANNED, EpisodeStatus.SCHEDULED,
                       EpisodeStatus.RECORDED, EpisodeStatus.INGESTED,
                       EpisodeStatus.TRANSCRIBED, EpisodeStatus.EDITED]:
             self.episode.transition_to(status, self.user)
-        
+
         # Create a required checklist item that's not done
         ChecklistItem.objects.create(
             organization_uuid=self.org_uuid,
@@ -210,11 +210,12 @@ class StatusTransitionTests(TestCase):
             is_done=False,
             created_by=self.user
         )
-        
+
         # Should fail because checklist is incomplete
-        success, msg = self.episode.transition_to(EpisodeStatus.APPROVED, self.user)
-        self.assertFalse(success)
-        self.assertIn('checklist', msg.lower())
+        with self.assertRaises(ValidationError) as ctx:
+            self.episode.transition_to(EpisodeStatus.APPROVED, self.user)
+        self.assertIn('checklist', str(ctx.exception).lower())
+        self.assertEqual(self.episode.status, EpisodeStatus.EDITED)
 
 
 class PermissionTests(TestCase):
@@ -239,21 +240,18 @@ class PermissionTests(TestCase):
         )
         # Assign roles
         ShowRoleAssignment.objects.create(
-            organization_uuid=self.org_uuid,
             show=self.show,
             user=self.admin_user,
             role=Role.ADMIN,
             created_by=self.admin_user
         )
         ShowRoleAssignment.objects.create(
-            organization_uuid=self.org_uuid,
             show=self.show,
             user=self.host_user,
             role=Role.HOST,
             created_by=self.admin_user
         )
         ShowRoleAssignment.objects.create(
-            organization_uuid=self.org_uuid,
             show=self.show,
             user=self.guest_user,
             role=Role.GUEST,
@@ -290,9 +288,9 @@ class PermissionTests(TestCase):
             title='Episode 1',
             created_by=self.admin_user
         )
-        self.assertTrue(can_approve_artifact(self.admin_user, episode))
-        self.assertTrue(can_approve_artifact(self.host_user, episode))
-        self.assertFalse(can_approve_artifact(self.guest_user, episode))
+        self.assertTrue(can_approve_ai_artifact(self.admin_user, episode))
+        self.assertTrue(can_approve_ai_artifact(self.host_user, episode))
+        self.assertFalse(can_approve_ai_artifact(self.guest_user, episode))
 
 
 class AIArtifactApprovalTests(TestCase):
@@ -319,25 +317,25 @@ class AIArtifactApprovalTests(TestCase):
             organization_uuid=self.org_uuid,
             episode=self.episode,
             artifact_type=ArtifactType.SHOW_NOTES,
-            prompt_text='Generate show notes',
+            input_prompt='Generate show notes',
+            input_context_refs={},
             output_text='AI generated content here',
             provider='mock',
             model='mock-v1',
             created_by=self.user
         )
-    
+
     def test_artifact_starts_pending(self):
         """New artifacts start with pending status."""
         self.assertEqual(self.artifact.approval_status, ApprovalStatus.PENDING)
         self.assertIsNone(self.artifact.approved_by)
-    
+
     def test_approve_artifact(self):
         """Artifact can be approved."""
-        self.artifact.approve(self.user, notes='Looks good!')
+        self.artifact.approve(self.user)
         self.assertEqual(self.artifact.approval_status, ApprovalStatus.APPROVED)
         self.assertEqual(self.artifact.approved_by, self.user)
         self.assertIsNotNone(self.artifact.approved_at)
-        self.assertEqual(self.artifact.notes, 'Looks good!')
     
     def test_reject_artifact(self):
         """Artifact can be rejected."""
@@ -373,19 +371,18 @@ class AIServiceTests(TestCase):
         artifact = generate_show_notes(
             episode=self.episode,
             user=self.user,
-            topic_hint='Startup culture'
         )
         self.assertIsNotNone(artifact)
         self.assertEqual(artifact.artifact_type, ArtifactType.SHOW_NOTES)
         self.assertEqual(artifact.episode, self.episode)
         self.assertIn('show notes', artifact.output_text.lower())
-    
+
     def test_generate_questions_creates_artifact(self):
         """generate_questions creates an AIArtifact."""
         artifact = generate_questions(
             episode=self.episode,
+            topic_prompt='CEO of a tech startup',
             user=self.user,
-            guest_context='CEO of a tech startup'
         )
         self.assertIsNotNone(artifact)
         self.assertEqual(artifact.artifact_type, ArtifactType.QUESTIONS)

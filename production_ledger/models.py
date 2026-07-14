@@ -5,6 +5,7 @@ All models use UUID primary keys and include organization_uuid for multi-tenancy
 Every model includes created_by/updated_by and timestamps for auditability.
 """
 import hashlib
+import secrets
 import uuid
 
 from django.conf import settings
@@ -68,6 +69,11 @@ class BaseModel(models.Model):
 # SHOW
 # =============================================================================
 
+def show_branding_upload_path(instance, filename):
+    """Generate upload path for show branding assets (logo, second-screen background)."""
+    return f"show_branding/{instance.organization_uuid}/{instance.pk}/{filename}"
+
+
 class Show(BaseModel):
     """
     A podcast show/series. Contains branding and default content.
@@ -80,7 +86,9 @@ class Show(BaseModel):
     brand_primary_color = models.CharField(max_length=7, blank=True, help_text="Hex color code, e.g. #FF5733")
     default_intro_text = models.TextField(blank=True, help_text="Default intro text for episodes")
     default_outro_text = models.TextField(blank=True, help_text="Default outro text for episodes")
-    
+    logo = models.ImageField(upload_to=show_branding_upload_path, null=True, blank=True, help_text="Show logo for the second-screen display and other branding")
+    second_screen_background = models.ImageField(upload_to=show_branding_upload_path, null=True, blank=True, help_text="Default full-screen background shown between segments on the second screen")
+
     class Meta:
         verbose_name = "Show"
         verbose_name_plural = "Shows"
@@ -240,6 +248,13 @@ class EpisodeType(models.Model):
 # EPISODE
 # =============================================================================
 
+def generate_overlay_token():
+    """Opaque, URL-safe token authorizing read-only access to an episode's
+    live overlay (used by OBS Browser Sources, which can't log in). Stored
+    per-episode so it can be revoked by regenerating."""
+    return secrets.token_urlsafe(32)
+
+
 class Episode(BaseModel):
     """
     A single episode of a show. Tracks workflow status and metadata.
@@ -276,6 +291,25 @@ class Episode(BaseModel):
     # Live notes (for Control Room)
     live_notes = models.TextField(blank=True, help_text="Notes captured during recording")
 
+    # Live production state (for Control Room / second-screen display)
+    active_segment = models.ForeignKey(
+        'Segment',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+        help_text="Segment currently live in Control Room, shown on the second screen",
+    )
+
+    # Read-only token letting OBS (or any browser that can't log in) load the
+    # live overlay for this episode. Regenerate to revoke old URLs.
+    overlay_token = models.CharField(
+        max_length=64,
+        default=generate_overlay_token,
+        db_index=True,
+        help_text="Token authorizing the no-login OBS overlay URL for this episode",
+    )
+
     class Meta:
         verbose_name = "Episode"
         verbose_name_plural = "Episodes"
@@ -288,6 +322,12 @@ class Episode(BaseModel):
 
     def __str__(self):
         return f"{self.show.name}: {self.title}"
+
+    def regenerate_overlay_token(self):
+        """Issue a fresh overlay token, invalidating any previously-shared URL."""
+        self.overlay_token = generate_overlay_token()
+        self.save(update_fields=['overlay_token', 'updated_at'])
+        return self.overlay_token
 
     def can_transition_to(self, new_status):
         """Check if status transition is allowed."""
@@ -402,6 +442,97 @@ class EpisodeRoleOverride(models.Model):
 
 
 # =============================================================================
+# SPONSOR
+# =============================================================================
+
+def sponsor_logo_upload_path(instance, filename):
+    """Generate upload path for sponsor logos."""
+    return f"sponsors/{instance.organization_uuid}/{instance.pk}/{filename}"
+
+
+class Sponsor(BaseModel):
+    """
+    A sponsor/advertiser for a show. Reusable across episodes and segments
+    (e.g. a recurring sponsor for a weekly news segment).
+    """
+    show = models.ForeignKey(Show, on_delete=models.CASCADE, related_name='sponsors')
+
+    name = models.CharField(max_length=255)
+    website_url = models.URLField(max_length=2000, blank=True, help_text="Sponsor site or ad landing page — encoded into the second-screen QR code")
+    ad_copy = models.TextField(blank=True, help_text="Short read-copy or promo message for the segment sponsor card")
+    logo = models.ImageField(upload_to=sponsor_logo_upload_path, null=True, blank=True)
+    is_active = models.BooleanField(default=True, help_text="Inactive sponsors are hidden from segment pickers but kept for historical episodes")
+
+    class Meta:
+        verbose_name = "Sponsor"
+        verbose_name_plural = "Sponsors"
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['organization_uuid', 'show']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.show.name})"
+
+
+# =============================================================================
+# SEGMENT TEMPLATE (reusable across episodes of a show)
+# =============================================================================
+
+class SegmentTemplate(BaseModel):
+    """
+    A reusable segment blueprint for a show (e.g. a recurring "News" or
+    "Lightning Round" segment). Picking one when building an episode's run
+    of show copies its fields into a new, independent Segment — editing
+    that Segment never changes the template or other episodes that used it.
+    """
+    show = models.ForeignKey(Show, on_delete=models.CASCADE, related_name='segment_templates')
+
+    title = models.CharField(max_length=255)
+    purpose = models.TextField(blank=True)
+    timebox_minutes = models.PositiveIntegerField(default=5)
+    owner_role = models.CharField(
+        max_length=20,
+        choices=SegmentOwner.CHOICES,
+        default=SegmentOwner.HOST,
+    )
+    bullet_prompts = models.TextField(blank=True, help_text="Bullet points for this segment")
+    key_questions = models.TextField(blank=True, help_text="Key questions to cover")
+    sponsor = models.ForeignKey(
+        Sponsor,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='segment_templates',
+        help_text="Default sponsor to carry over when this template is used",
+    )
+    is_active = models.BooleanField(default=True, help_text="Inactive templates are hidden from pickers but kept for history")
+
+    class Meta:
+        verbose_name = "Segment Template"
+        verbose_name_plural = "Segment Templates"
+        ordering = ['title']
+        indexes = [
+            models.Index(fields=['organization_uuid', 'show']),
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.show.name})"
+
+    def build_segment_kwargs(self):
+        """Field values to seed a new Segment from this template."""
+        return {
+            'title': self.title,
+            'purpose': self.purpose,
+            'timebox_minutes': self.timebox_minutes,
+            'owner_role': self.owner_role,
+            'bullet_prompts': self.bullet_prompts,
+            'key_questions': self.key_questions,
+            'sponsor_id': self.sponsor_id,
+        }
+
+
+# =============================================================================
 # SEGMENT (Run of Show)
 # =============================================================================
 
@@ -410,20 +541,38 @@ class Segment(BaseModel):
     A segment in the run of show for an episode.
     """
     episode = models.ForeignKey(Episode, on_delete=models.CASCADE, related_name='segments')
-    
+
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=255)
     purpose = models.TextField(blank=True)
     timebox_minutes = models.PositiveIntegerField(default=5)
-    
+
     owner_role = models.CharField(
         max_length=20,
         choices=SegmentOwner.CHOICES,
         default=SegmentOwner.HOST,
     )
-    
+
     bullet_prompts = models.TextField(blank=True, help_text="Bullet points for this segment")
     key_questions = models.TextField(blank=True, help_text="Key questions to cover")
+
+    sponsor = models.ForeignKey(
+        Sponsor,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='segments',
+        help_text="Sponsor to display on the second screen while this segment is live",
+    )
+
+    source_template = models.ForeignKey(
+        SegmentTemplate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='segments_created',
+        help_text="Template this segment was copied from, if any — for reference only, not kept in sync",
+    )
 
     class Meta:
         verbose_name = "Segment"

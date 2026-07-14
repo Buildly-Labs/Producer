@@ -19,8 +19,11 @@ urlpatterns = [
     path('shows/<uuid:pk>/', views.ShowDetailView.as_view(), name='show_detail'),
     path('shows/<uuid:pk>/edit/', views.ShowUpdateView.as_view(), name='show_edit'),
     path('shows/<uuid:pk>/roles/', views.ShowRolesView.as_view(), name='show_roles'),
-    
+    path('shows/<uuid:pk>/segment-templates/', views.SegmentTemplateListView.as_view(), name='segment_templates'),
+
+
     # Episodes
+    path('episodes/', views.EpisodeListView.as_view(), name='episode_list'),
     path('episodes/create/', views.EpisodeCreateSelectShowView.as_view(), name='episode_create'),
     path('shows/<uuid:show_id>/episodes/create/', views.EpisodeCreateView.as_view(), name='episode_create_for_show'),
     path('episodes/<uuid:pk>/', views.EpisodeDetailView.as_view(), name='episode_detail'),
@@ -41,11 +44,22 @@ urlpatterns = [
     
     # Control Room
     path('episodes/<uuid:pk>/control-room/', views.ControlRoomView.as_view(), name='control_room'),
-    
+
+    # Second screen (live broadcast display for a second monitor)
+    path('episodes/<uuid:pk>/second-screen/', views.SecondScreenView.as_view(), name='second_screen'),
+    path('episodes/<uuid:pk>/second-screen/state/', views.SecondScreenStateView.as_view(), name='second_screen_state'),
+    path('episodes/<uuid:pk>/overlay-qr/', views.OverlayQRCodeView.as_view(), name='overlay_qr_code'),
+    path('sponsors/<uuid:pk>/qr-code/', views.SponsorQRCodeView.as_view(), name='sponsor_qr_code'),
+
     # Segments
     path('segments/<uuid:pk>/edit/', views.SegmentUpdateView.as_view(), name='segment_edit'),
     path('segments/<uuid:pk>/delete/', views.SegmentDeleteView.as_view(), name='segment_delete'),
-    
+
+    # Segment templates (reusable segment library, per show)
+    path('segment-templates/<uuid:pk>/edit/', views.SegmentTemplateUpdateView.as_view(), name='segment_template_edit'),
+    path('segment-templates/<uuid:pk>/delete/', views.SegmentTemplateDeleteView.as_view(), name='segment_template_delete'),
+
+
     # Guests
     path('guests/', views.GuestListView.as_view(), name='guest_list'),
     path('guests/create/', views.GuestCreateView.as_view(), name='guest_create'),

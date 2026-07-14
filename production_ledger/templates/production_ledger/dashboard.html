@@ -109,17 +109,13 @@
                         <a href="{% url 'production_ledger:episode_detail' episode.pk %}" 
                            class="flex items-center gap-4 p-4 hover:bg-[var(--bg-tertiary)] transition-colors">
                             <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-warm)] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                                {% if episode.season_number and episode.episode_number %}
-                                S{{ episode.season_number }}E{{ episode.episode_number }}
-                                {% else %}
                                 EP
-                                {% endif %}
                             </div>
                             <div class="flex-1 min-w-0">
                                 <h3 class="font-medium text-[var(--text-primary)] truncate">{{ episode.title }}</h3>
                                 <p class="text-sm text-[var(--text-muted)]">
                                     {{ episode.show.name }}
-                                    {% if episode.recording_date %} • {{ episode.recording_date|date:"M j, Y" }}{% endif %}
+                                    {% if episode.scheduled_for %} • {{ episode.scheduled_for|date:"M j, Y" }}{% endif %}
                                 </p>
                             </div>
                             <span class="badge {% if episode.status == 'published' %}badge-success{% elif episode.status == 'draft' %}badge-warning{% elif episode.status == 'editing' %}badge-info{% else %}badge-default{% endif %}">
@@ -205,7 +201,7 @@
                             </div>
                             <div class="flex-1 min-w-0">
                                 <p class="text-sm font-medium text-[var(--text-primary)] truncate">{{ episode.title }}</p>
-                                <p class="text-xs text-[var(--text-muted)]">{{ episode.recording_date|date:"M j, Y" }}</p>
+                                <p class="text-xs text-[var(--text-muted)]">{{ episode.scheduled_for|date:"M j, Y" }}</p>
                             </div>
                         </div>
                         {% endfor %}

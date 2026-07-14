@@ -11,65 +11,71 @@
             <div class="w-6 h-6 rounded-full mr-3" style="background-color: {{ show.brand_primary_color }}"></div>
             {% endif %}
             <div>
-                <h1 class="text-2xl font-bold text-gray-900">{{ show.name }}</h1>
-                <p class="text-sm text-gray-500">{{ show.description }}</p>
+                <h1 class="text-2xl font-bold text-[var(--text-primary)]">{{ show.name }}</h1>
+                <p class="text-sm text-[var(--text-muted)]">{{ show.description }}</p>
             </div>
         </div>
         <div class="flex space-x-2">
+            {% if user_role in 'admin,host,producer' %}
+            <a href="{% url 'production_ledger:segment_templates' show.pk %}"
+               class="inline-flex items-center px-3 py-2 border border-[var(--border-default)] text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)]">
+                Segment Library
+            </a>
+            {% endif %}
             {% if user_role == 'admin' %}
-            <a href="{% url 'production_ledger:show_roles' show.pk %}" 
-               class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+            <a href="{% url 'production_ledger:show_roles' show.pk %}"
+               class="inline-flex items-center px-3 py-2 border border-[var(--border-default)] text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)]">
                 Manage Roles
             </a>
-            <a href="{% url 'production_ledger:show_edit' show.pk %}" 
-               class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+            <a href="{% url 'production_ledger:show_edit' show.pk %}"
+               class="inline-flex items-center px-3 py-2 border border-[var(--border-default)] text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)]">
                 Edit Show
             </a>
             {% endif %}
-            <a href="{% url 'production_ledger:episode_create' show.pk %}" 
-               class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+            <a href="{% url 'production_ledger:episode_create_for_show' show.pk %}"
+               class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)]">
                 + New Episode
             </a>
         </div>
     </div>
 
     <!-- Episodes Table -->
-    <div class="bg-white shadow rounded-lg overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-200">
-            <h2 class="text-lg font-medium text-gray-900">Episodes</h2>
+    <div class="bg-[var(--bg-secondary)] shadow rounded-lg overflow-hidden">
+        <div class="px-6 py-4 border-b border-[var(--border-default)]">
+            <h2 class="text-lg font-medium text-[var(--text-primary)]">Episodes</h2>
         </div>
-        
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
+
+        <table class="min-w-full divide-y divide-[var(--border-default)]">
+            <thead class="bg-[var(--bg-tertiary)]">
                 <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scheduled</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Title</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Type</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Status</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Scheduled</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Actions</th>
                 </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
+            <tbody class="bg-[var(--bg-secondary)] divide-y divide-[var(--border-default)]">
                 {% for episode in episodes %}
-                <tr class="hover:bg-gray-50">
+                <tr class="hover:bg-[var(--bg-tertiary)]">
                     <td class="px-6 py-4">
-                        <a href="{% url 'production_ledger:episode_detail' episode.pk %}" class="text-sm font-medium text-blue-600 hover:text-blue-800">
+                        <a href="{% url 'production_ledger:episode_detail' episode.pk %}" class="text-sm font-medium text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)]">
                             {{ episode.title }}
                         </a>
                     </td>
-                    <td class="px-6 py-4 text-sm text-gray-500">
+                    <td class="px-6 py-4 text-sm text-[var(--text-muted)]">
                         {{ episode.get_episode_type_display }}
                     </td>
                     <td class="px-6 py-4">
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
-                            {% if episode.status == 'published' %}bg-green-100 text-green-800
-                            {% elif episode.status == 'approved' %}bg-blue-100 text-blue-800
-                            {% elif episode.status == 'draft' %}bg-gray-100 text-gray-800
-                            {% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                            {% if episode.status == 'published' %}bg-[var(--success-bg)] text-[var(--success)]
+                            {% elif episode.status == 'approved' %}bg-[var(--info-bg)] text-[var(--info)]
+                            {% elif episode.status == 'draft' %}bg-[var(--bg-tertiary)] text-[var(--text-muted)]
+                            {% else %}bg-[var(--warning-bg)] text-[var(--warning)]{% endif %}">
                             {{ episode.get_status_display }}
                         </span>
                     </td>
-                    <td class="px-6 py-4 text-sm text-gray-500">
+                    <td class="px-6 py-4 text-sm text-[var(--text-muted)]">
                         {% if episode.scheduled_for %}
                             {{ episode.scheduled_for|date:"M d, Y H:i" }}
                         {% else %}
@@ -77,16 +83,16 @@
                         {% endif %}
                     </td>
                     <td class="px-6 py-4 text-sm">
-                        <a href="{% url 'production_ledger:episode_detail' episode.pk %}" class="text-blue-600 hover:text-blue-800 mr-3">View</a>
+                        <a href="{% url 'production_ledger:episode_detail' episode.pk %}" class="text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)] mr-3">View</a>
                         {% if episode.status == 'recorded' or episode.status == 'scheduled' %}
-                        <a href="{% url 'production_ledger:control_room' episode.pk %}" class="text-green-600 hover:text-green-800">Control Room</a>
+                        <a href="{% url 'production_ledger:control_room' episode.pk %}" class="text-[var(--success)] hover:opacity-80">Control Room</a>
                         {% endif %}
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="5" class="px-6 py-12 text-center text-gray-500">
-                        No episodes yet. <a href="{% url 'production_ledger:episode_create' show.pk %}" class="text-blue-600 hover:text-blue-800">Create one →</a>
+                    <td colspan="5" class="px-6 py-12 text-center text-[var(--text-muted)]">
+                        No episodes yet. <a href="{% url 'production_ledger:episode_create_for_show' show.pk %}" class="text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)]">Create one →</a>
                     </td>
                 </tr>
                 {% endfor %}

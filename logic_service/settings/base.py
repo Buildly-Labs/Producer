@@ -150,6 +150,10 @@ STATICFILES_DIRS = [
     os.path.join(os.path.dirname(BASE_DIR), 'static'),
 ]
 
+# User-uploaded media (show branding, sponsor logos, etc.)
+MEDIA_URL = os.getenv('MEDIA_URL', '/media/')
+MEDIA_ROOT = os.getenv('MEDIA_ROOT', os.path.join(os.path.dirname(BASE_DIR), 'media'))
+
 
 # Rest Framework
 

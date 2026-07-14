@@ -1,0 +1,69 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Manage Roles - {{ show.name }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <div class="text-sm text-[var(--text-muted)] mb-1">
+            <a href="{% url 'production_ledger:show_detail' show.pk %}" class="hover:text-[var(--text-primary)]">{{ show.name }}</a>
+        </div>
+        <h1 class="text-2xl font-bold text-[var(--text-primary)]">Manage Roles</h1>
+        <p class="text-[var(--text-muted)]">Control who can access this show and what they can do.</p>
+    </div>
+
+    <div class="bg-[var(--bg-secondary)] shadow rounded-lg overflow-hidden border border-[var(--border-subtle)]">
+        <ul class="divide-y divide-[var(--border-subtle)]">
+            {% for assignment in role_assignments %}
+            <li class="px-6 py-4 flex items-center justify-between">
+                <div>
+                    <p class="font-medium text-[var(--text-primary)]">{{ assignment.user.get_full_name|default:assignment.user.username }}</p>
+                    <p class="text-sm text-[var(--text-muted)]">{{ assignment.user.email }} · {{ assignment.get_role_display }}</p>
+                </div>
+                <form method="post" class="inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="remove">
+                    <input type="hidden" name="assignment_id" value="{{ assignment.pk }}">
+                    <button type="submit" class="text-sm text-[var(--danger)] hover:underline" onclick="return confirm('Remove {{ assignment.user.get_full_name|default:assignment.user.username }} from this show?')">Remove</button>
+                </form>
+            </li>
+            {% empty %}
+            <li class="px-6 py-12 text-center text-[var(--text-muted)]">
+                No roles assigned yet — add one below.
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="bg-[var(--bg-secondary)] rounded-lg shadow p-6 border border-[var(--border-subtle)]">
+        <h3 class="text-lg font-medium text-[var(--text-primary)] mb-4">Add Role Assignment</h3>
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="form-label">User</label>
+                    {{ form.user }}
+                </div>
+                <div>
+                    <label class="form-label">Role</label>
+                    {{ form.role }}
+                </div>
+            </div>
+            <div class="flex justify-end">
+                <button type="submit" class="px-4 py-2 bg-[var(--accent-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--accent-primary-hover)]">
+                    Assign Role
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="bg-[var(--bg-secondary)] rounded-lg shadow p-6 border border-[var(--border-subtle)]">
+        <h3 class="text-lg font-medium text-[var(--text-primary)] mb-3">Roles Explained</h3>
+        <ul class="text-sm text-[var(--text-muted)] space-y-1">
+            {% for value, label in roles %}
+            <li><span class="font-medium text-[var(--text-primary)]">{{ label }}</span></li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endblock %}

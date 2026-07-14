@@ -3,9 +3,9 @@
 {% block tab_content %}
 <div class="space-y-6">
     <div class="flex justify-between items-center">
-        <h3 class="text-lg font-medium text-gray-900">Run of Show</h3>
-        <div class="text-sm text-gray-500">
-            Total: {{ segments|length }} segments, 
+        <h3 class="text-lg font-medium text-[var(--text-primary)]">Run of Show</h3>
+        <div class="text-sm text-[var(--text-muted)]">
+            Total: {{ segments|length }} segments,
             {% with total=0 %}
                 {% for seg in segments %}{% endfor %}
             {% endwith %}
@@ -16,81 +16,118 @@
     <!-- Segments List -->
     <div class="space-y-4">
         {% for segment in segments %}
-        <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+        <div class="bg-[var(--bg-tertiary)] rounded-lg p-4 border border-[var(--border-subtle)]">
             <div class="flex justify-between items-start">
                 <div class="flex items-start">
-                    <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-medium mr-4">
+                    <div class="w-8 h-8 rounded-full bg-[var(--info-bg)] text-[var(--info)] flex items-center justify-center font-medium mr-4">
                         {{ segment.order }}
                     </div>
                     <div>
-                        <h4 class="font-medium text-gray-900">{{ segment.title }}</h4>
-                        <p class="text-sm text-gray-500">{{ segment.purpose }}</p>
-                        <div class="mt-2 flex items-center space-x-4 text-sm text-gray-500">
+                        <h4 class="font-medium text-[var(--text-primary)]">{{ segment.title }}</h4>
+                        <p class="text-sm text-[var(--text-muted)]">{{ segment.purpose }}</p>
+                        <div class="mt-2 flex items-center space-x-4 text-sm text-[var(--text-muted)]">
                             <span>⏱️ {{ segment.timebox_minutes }} min</span>
                             <span>👤 {{ segment.get_owner_role_display }}</span>
+                            {% if segment.sponsor %}
+                            <span>💰 {{ segment.sponsor.name }}</span>
+                            {% endif %}
                         </div>
                         {% if segment.key_questions %}
                         <div class="mt-2">
-                            <span class="text-xs font-medium text-gray-500 uppercase">Key Questions:</span>
-                            <p class="text-sm text-gray-700 whitespace-pre-line">{{ segment.key_questions }}</p>
+                            <span class="text-xs font-medium text-[var(--text-muted)] uppercase">Key Questions:</span>
+                            <p class="text-sm text-[var(--text-secondary)] whitespace-pre-line">{{ segment.key_questions }}</p>
                         </div>
                         {% endif %}
                     </div>
                 </div>
                 {% if user_role in 'admin,host,producer' %}
                 <div class="flex space-x-2">
-                    <a href="{% url 'production_ledger:segment_edit' segment.pk %}" class="text-sm text-blue-600 hover:text-blue-800">Edit</a>
+                    <a href="{% url 'production_ledger:segment_edit' segment.pk %}" class="text-sm text-[var(--accent-primary)] hover:underline">Edit</a>
                     <form method="post" action="{% url 'production_ledger:segment_delete' segment.pk %}" class="inline">
                         {% csrf_token %}
-                        <button type="submit" class="text-sm text-red-600 hover:text-red-800" onclick="return confirm('Delete this segment?')">Delete</button>
+                        <button type="submit" class="text-sm text-[var(--danger)] hover:underline" onclick="return confirm('Delete this segment?')">Delete</button>
                     </form>
                 </div>
                 {% endif %}
             </div>
         </div>
         {% empty %}
-        <div class="text-center py-8 text-gray-500">
+        <div class="text-center py-8 text-[var(--text-muted)]">
             <p>No segments defined yet.</p>
         </div>
         {% endfor %}
     </div>
 
+    <!-- Reuse an existing segment -->
+    {% if user_role in 'admin,host,producer' %}
+    <div class="border-t border-[var(--border-subtle)] pt-6">
+        <div class="flex items-center justify-between mb-4">
+            <h4 class="text-sm font-medium text-[var(--text-primary)]">Use an Existing Segment</h4>
+            <a href="{% url 'production_ledger:segment_templates' episode.show.pk %}" class="text-sm text-[var(--accent-primary)] hover:underline">Manage Segment Library →</a>
+        </div>
+        {% if template_pick_form.fields.template.queryset.exists %}
+        <form method="post" class="flex items-end gap-3">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="use_template">
+            <div class="flex-1">
+                <label class="form-label">Reuse from this show's library</label>
+                {{ template_pick_form.template }}
+            </div>
+            <button type="submit" class="px-4 py-2 border border-[var(--border-default)] text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)]">
+                Add to Episode
+            </button>
+        </form>
+        <p class="form-hint">Adds an editable copy for this episode — adjusting it here won't change the library template or other episodes.</p>
+        {% else %}
+        <p class="text-sm text-[var(--text-muted)]">
+            No reusable segments yet for this show. <a href="{% url 'production_ledger:segment_templates' episode.show.pk %}" class="text-[var(--accent-primary)] hover:underline">Add one to the library →</a>
+        </p>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Add Segment Form -->
     {% if user_role in 'admin,host,producer' %}
-    <div class="border-t border-gray-200 pt-6">
-        <h4 class="text-sm font-medium text-gray-900 mb-4">Add Segment</h4>
+    <div class="border-t border-[var(--border-subtle)] pt-6">
+        <h4 class="text-sm font-medium text-[var(--text-primary)] mb-4">Or Create a New Segment</h4>
         <form method="post" class="space-y-4">
             {% csrf_token %}
+            <input type="hidden" name="action" value="create_new">
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">Order</label>
+                    <label class="form-label">Order</label>
                     {{ segment_form.order }}
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">Title</label>
+                    <label class="form-label">Title</label>
                     {{ segment_form.title }}
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">Duration (minutes)</label>
+                    <label class="form-label">Duration (minutes)</label>
                     {{ segment_form.timebox_minutes }}
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">Owner</label>
+                    <label class="form-label">Owner</label>
                     {{ segment_form.owner_role }}
                 </div>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700">Purpose</label>
+                <label class="form-label">Sponsor</label>
+                {{ segment_form.sponsor }}
+                <p class="form-hint">Shown on the second screen while this segment is live.</p>
+            </div>
+            <div>
+                <label class="form-label">Purpose</label>
                 {{ segment_form.purpose }}
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700">Key Questions</label>
+                <label class="form-label">Key Questions</label>
                 {{ segment_form.key_questions }}
             </div>
             <div class="flex justify-end">
-                <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                <button type="submit" class="px-4 py-2 bg-[var(--accent-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--accent-primary-hover)]">
                     Add Segment
                 </button>
             </div>

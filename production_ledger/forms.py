@@ -24,10 +24,12 @@ from .models import (
     Guest,
     MediaAsset,
     Segment,
+    SegmentTemplate,
     Show,
     ShowNoteDraft,
     ShowNoteFinal,
     ShowRoleAssignment,
+    Sponsor,
     Transcript,
 )
 
@@ -45,21 +47,21 @@ class TailwindFormMixin:
     
     def apply_tailwind_classes(self):
         for field_name, field in self.fields.items():
-            # Base classes
-            base_classes = "block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            
+            # Theme-aware classes (see static/css/app.css) so fields render
+            # correctly in both light and dark mode instead of a hardcoded
+            # light-only palette.
             if isinstance(field.widget, forms.Textarea):
-                field.widget.attrs['class'] = f"{base_classes} min-h-[100px]"
+                field.widget.attrs['class'] = "form-input min-h-[100px]"
                 field.widget.attrs['rows'] = 4
             elif isinstance(field.widget, forms.Select):
-                field.widget.attrs['class'] = base_classes
+                field.widget.attrs['class'] = "form-input form-select"
             elif isinstance(field.widget, forms.CheckboxInput):
-                field.widget.attrs['class'] = "h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                field.widget.attrs['class'] = "form-checkbox"
             elif isinstance(field.widget, forms.FileInput):
-                field.widget.attrs['class'] = "block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                field.widget.attrs['class'] = "block w-full text-sm text-[var(--text-muted)] file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[var(--accent-primary)]/10 file:text-[var(--accent-primary)] hover:file:bg-[var(--accent-primary)]/20"
             else:
-                field.widget.attrs['class'] = base_classes
-            
+                field.widget.attrs['class'] = "form-input"
+
             # Add placeholder if help_text exists
             if field.help_text:
                 field.widget.attrs['placeholder'] = field.help_text
@@ -167,18 +169,28 @@ class LiveNotesForm(TailwindFormMixin, forms.ModelForm):
 
 class SegmentForm(TailwindFormMixin, forms.ModelForm):
     """Form for creating/editing Segments."""
-    
+
     class Meta:
         model = Segment
         fields = [
             'order', 'title', 'purpose', 'timebox_minutes',
-            'owner_role', 'bullet_prompts', 'key_questions',
+            'owner_role', 'bullet_prompts', 'key_questions', 'sponsor',
         ]
         widgets = {
             'purpose': forms.Textarea(attrs={'rows': 2}),
             'bullet_prompts': forms.Textarea(attrs={'rows': 3}),
             'key_questions': forms.Textarea(attrs={'rows': 3}),
         }
+
+    def __init__(self, *args, show=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['sponsor'].required = False
+        if show is not None:
+            self.fields['sponsor'].queryset = Sponsor.objects.filter(show=show, is_active=True)
+        elif self.instance and self.instance.pk:
+            self.fields['sponsor'].queryset = Sponsor.objects.filter(show=self.instance.episode.show, is_active=True)
+        else:
+            self.fields['sponsor'].queryset = Sponsor.objects.none()
 
 
 SegmentFormSet = forms.inlineformset_factory(
@@ -187,6 +199,43 @@ SegmentFormSet = forms.inlineformset_factory(
     extra=1,
     can_delete=True,
 )
+
+
+class SegmentTemplatePickForm(TailwindFormMixin, forms.Form):
+    """Pick an existing segment template to copy into an episode's run of show."""
+
+    template = forms.ModelChoiceField(queryset=SegmentTemplate.objects.none(), label='Existing segment')
+
+    def __init__(self, *args, show=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if show is not None:
+            self.fields['template'].queryset = SegmentTemplate.objects.filter(show=show, is_active=True)
+
+
+class SegmentTemplateForm(TailwindFormMixin, forms.ModelForm):
+    """Form for creating/editing reusable Segment Templates."""
+
+    class Meta:
+        model = SegmentTemplate
+        fields = [
+            'title', 'purpose', 'timebox_minutes',
+            'owner_role', 'bullet_prompts', 'key_questions', 'sponsor',
+        ]
+        widgets = {
+            'purpose': forms.Textarea(attrs={'rows': 2}),
+            'bullet_prompts': forms.Textarea(attrs={'rows': 3}),
+            'key_questions': forms.Textarea(attrs={'rows': 3}),
+        }
+
+    def __init__(self, *args, show=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['sponsor'].required = False
+        if show is not None:
+            self.fields['sponsor'].queryset = Sponsor.objects.filter(show=show, is_active=True)
+        elif self.instance and self.instance.pk:
+            self.fields['sponsor'].queryset = Sponsor.objects.filter(show=self.instance.show, is_active=True)
+        else:
+            self.fields['sponsor'].queryset = Sponsor.objects.none()
 
 
 # =============================================================================

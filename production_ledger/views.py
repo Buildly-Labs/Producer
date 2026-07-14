@@ -4,14 +4,15 @@ Views for Production Ledger.
 All views enforce organization scoping and RBAC.
 """
 import json
+import secrets
 import zipfile
 from io import BytesIO
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
-from django.http import HttpResponse, JsonResponse
+from django.db import models, transaction
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -50,6 +51,8 @@ from .forms import (
     MediaAssetUploadForm,
     QuickClipForm,
     SegmentForm,
+    SegmentTemplateForm,
+    SegmentTemplatePickForm,
     ShowForm,
     ShowNoteDraftForm,
     ShowRoleAssignmentForm,
@@ -66,10 +69,12 @@ from .models import (
     Guest,
     MediaAsset,
     Segment,
+    SegmentTemplate,
     Show,
     ShowNoteDraft,
     ShowNoteFinal,
     ShowRoleAssignment,
+    Sponsor,
     Transcript,
 )
 from .permissions import (
@@ -223,10 +228,10 @@ class DashboardView(LoginRequiredMixin, OrganizationMixin, TemplateView):
         # Upcoming episodes (scheduled recording date in the future)
         context['upcoming_episodes'] = Episode.objects.filter(
             organization_uuid=org_uuid,
-            recording_date__gte=timezone.now().date()
+            scheduled_for__gte=timezone.now()
         ).exclude(
             status=EpisodeStatus.PUBLISHED
-        ).select_related('show').order_by('recording_date')[:5]
+        ).select_related('show').order_by('scheduled_for')[:5]
         
         # Legacy context for old template
         context['shows'] = Show.objects.filter(
@@ -270,6 +275,17 @@ class ShowListView(LoginRequiredMixin, OrganizationMixin, ListView):
     model = Show
     template_name = 'production_ledger/show_list.html'
     context_object_name = 'shows'
+
+
+class EpisodeListView(LoginRequiredMixin, OrganizationMixin, ListView):
+    """List all episodes across shows. Linked from the sidebar's Episodes nav item."""
+
+    model = Episode
+    template_name = 'production_ledger/episode_list.html'
+    context_object_name = 'episodes'
+
+    def get_queryset(self):
+        return super().get_queryset().select_related('show').order_by('-created_at')
 
 
 class ShowCreateView(LoginRequiredMixin, OrganizationMixin, AuditMixin, CreateView):
@@ -358,8 +374,16 @@ class ShowRolesView(LoginRequiredMixin, OrganizationMixin, RoleMixin, TemplateVi
     
     def post(self, request, *args, **kwargs):
         show = self.get_show()
+
+        if request.POST.get('action') == 'remove':
+            ShowRoleAssignment.objects.filter(
+                show=show, pk=request.POST.get('assignment_id')
+            ).delete()
+            messages.success(request, 'Role assignment removed.')
+            return redirect('production_ledger:show_roles', pk=show.pk)
+
         form = ShowRoleAssignmentForm(request.POST)
-        
+
         if form.is_valid():
             assignment = form.save(commit=False)
             assignment.show = show
@@ -368,8 +392,81 @@ class ShowRolesView(LoginRequiredMixin, OrganizationMixin, RoleMixin, TemplateVi
             messages.success(request, 'Role assigned successfully!')
         else:
             messages.error(request, 'Error assigning role.')
-        
+
         return redirect('production_ledger:show_roles', pk=show.pk)
+
+
+class SegmentTemplateListView(LoginRequiredMixin, OrganizationMixin, RoleMixin, TemplateView):
+    """Manage the reusable segment template library for a show."""
+
+    template_name = 'production_ledger/segment_templates.html'
+    required_roles = [Role.ADMIN, Role.HOST, Role.PRODUCER]
+
+    def get_show(self):
+        show = get_object_or_404(Show, pk=self.kwargs['pk'])
+        self.check_permissions(show)
+        return show
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        show = self.get_show()
+        context['show'] = show
+        context['templates'] = SegmentTemplate.objects.filter(show=show).order_by('title')
+        context['form'] = SegmentTemplateForm(show=show)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        show = self.get_show()
+        form = SegmentTemplateForm(request.POST, show=show)
+
+        if form.is_valid():
+            template = form.save(commit=False)
+            template.show = show
+            template.organization_uuid = show.organization_uuid
+            template.created_by = request.user
+            template.save()
+            messages.success(request, f'"{template.title}" added to the segment library.')
+        else:
+            messages.error(request, 'Error saving segment template.')
+
+        return redirect('production_ledger:segment_templates', pk=show.pk)
+
+
+class SegmentTemplateUpdateView(LoginRequiredMixin, OrganizationMixin, RoleMixin, AuditMixin, UpdateView):
+    """Edit a segment template."""
+
+    model = SegmentTemplate
+    form_class = SegmentTemplateForm
+    template_name = 'production_ledger/segment_template_form.html'
+    required_roles = [Role.ADMIN, Role.HOST, Role.PRODUCER]
+
+    def get_object(self):
+        obj = super().get_object()
+        self.check_permissions(obj.show)
+        return obj
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['show'] = self.get_object().show
+        return kwargs
+
+    def get_success_url(self):
+        return reverse('production_ledger:segment_templates', kwargs={'pk': self.object.show.pk})
+
+
+class SegmentTemplateDeleteView(LoginRequiredMixin, OrganizationMixin, RoleMixin, DeleteView):
+    """Delete a segment template. Existing episode Segments copied from it are unaffected."""
+
+    model = SegmentTemplate
+    required_roles = [Role.ADMIN, Role.HOST, Role.PRODUCER]
+
+    def get_object(self):
+        obj = super().get_object()
+        self.check_permissions(obj.show)
+        return obj
+
+    def get_success_url(self):
+        return reverse('production_ledger:segment_templates', kwargs={'pk': self.object.show.pk})
 
 
 # =============================================================================
@@ -523,24 +620,46 @@ class EpisodeOverviewView(EpisodeTabMixin, TemplateView):
 
 class EpisodeSegmentsView(EpisodeTabMixin, TemplateView):
     """Episode segments (run of show) tab."""
-    
+
     template_name = 'production_ledger/tabs/segments.html'
     active_tab = 'segments'
-    
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['segments'] = self.get_episode().segments.all().order_by('order')
-        context['segment_form'] = SegmentForm()
+        episode = self.get_episode()
+        context['segments'] = episode.segments.all().order_by('order')
+        context['segment_form'] = SegmentForm(show=episode.show)
+        context['template_pick_form'] = SegmentTemplatePickForm(show=episode.show)
         return context
-    
+
     def post(self, request, *args, **kwargs):
         episode = self.get_episode()
-        
+
         if not has_role(request.user, episode, [Role.ADMIN, Role.HOST, Role.PRODUCER]):
             messages.error(request, 'You do not have permission to add segments.')
             return redirect('production_ledger:episode_segments', pk=episode.pk)
-        
-        form = SegmentForm(request.POST)
+
+        action = request.POST.get('action', 'create_new')
+
+        if action == 'use_template':
+            pick_form = SegmentTemplatePickForm(request.POST, show=episode.show)
+            if pick_form.is_valid():
+                template = pick_form.cleaned_data['template']
+                next_order = (episode.segments.aggregate(models.Max('order'))['order__max'] or 0) + 1
+                Segment.objects.create(
+                    episode=episode,
+                    organization_uuid=episode.organization_uuid,
+                    created_by=request.user,
+                    order=next_order,
+                    source_template=template,
+                    **template.build_segment_kwargs(),
+                )
+                messages.success(request, f'Added "{template.title}" — feel free to adjust it for this episode.')
+            else:
+                messages.error(request, 'Pick a segment to reuse.')
+            return redirect('production_ledger:episode_segments', pk=episode.pk)
+
+        form = SegmentForm(request.POST, show=episode.show)
         if form.is_valid():
             segment = form.save(commit=False)
             segment.episode = episode
@@ -875,19 +994,19 @@ class ControlRoomView(EpisodeTabMixin, TemplateView):
         context['live_notes_form'] = LiveNotesForm(instance=episode)
         context['quick_clip_form'] = QuickClipForm()
         return context
-    
+
     def post(self, request, *args, **kwargs):
         episode = self.get_episode()
-        
+
         # Handle different POST actions
         action = request.POST.get('action')
-        
+
         if action == 'save_notes':
             form = LiveNotesForm(request.POST, instance=episode)
             if form.is_valid():
                 form.save()
                 messages.success(request, 'Notes saved!')
-        
+
         elif action == 'quick_clip':
             form = QuickClipForm(request.POST)
             if form.is_valid():
@@ -902,8 +1021,195 @@ class ControlRoomView(EpisodeTabMixin, TemplateView):
                     created_by=request.user,
                 )
                 messages.success(request, 'Moment flagged!')
-        
+
+        elif action == 'set_live_segment':
+            segment_id = request.POST.get('segment_id') or None
+            if segment_id:
+                segment = get_object_or_404(Segment, pk=segment_id, episode=episode)
+                episode.active_segment = segment
+            else:
+                episode.active_segment = None
+            episode.save(update_fields=['active_segment'])
+
+        elif action == 'regenerate_overlay_token':
+            episode.regenerate_overlay_token()
+            messages.success(request, 'Overlay link regenerated — the old OBS URL will stop working. Update your Browser Source with the new one.')
+
         return redirect('production_ledger:control_room', pk=episode.pk)
+
+
+# =============================================================================
+# SECOND SCREEN (live broadcast display)
+# =============================================================================
+
+def _second_screen_state(episode, overlay_token=None):
+    """Build the JSON-serializable state for the second-screen display.
+
+    When overlay_token is given (the OBS Browser Source path), the sponsor
+    QR URL points at the token-authorized OverlayQRCodeView so it loads
+    without a login; otherwise it uses the login-gated per-sponsor endpoint.
+    """
+    show = episode.show
+    segment = episode.active_segment
+    sponsor = segment.sponsor if segment else None
+
+    state = {
+        'episode_id': str(episode.pk),
+        'episode_title': episode.title,
+        'show_name': show.name,
+        'show_logo_url': show.logo.url if show.logo else None,
+        'background_url': show.second_screen_background.url if show.second_screen_background else None,
+        'brand_primary_color': show.brand_primary_color or None,
+        'segment': None,
+        'sponsor': None,
+    }
+
+    if segment:
+        state['segment'] = {
+            'id': str(segment.pk),
+            'title': segment.title,
+            'order': segment.order,
+            'purpose': segment.purpose,
+        }
+
+    if sponsor:
+        if not sponsor.website_url:
+            qr_code_url = None
+        elif overlay_token:
+            qr_code_url = (
+                reverse('production_ledger:overlay_qr_code', kwargs={'pk': episode.pk})
+                + f'?token={overlay_token}'
+            )
+        else:
+            qr_code_url = reverse('production_ledger:sponsor_qr_code', kwargs={'pk': sponsor.pk})
+        state['sponsor'] = {
+            'id': str(sponsor.pk),
+            'name': sponsor.name,
+            'ad_copy': sponsor.ad_copy,
+            'website_url': sponsor.website_url,
+            'logo_url': sponsor.logo.url if sponsor.logo else None,
+            'qr_code_url': qr_code_url,
+        }
+
+    return state
+
+
+def _episode_for_overlay_token(request, pk):
+    """Return the episode if the request carries a valid overlay token for it,
+    else None. Uses constant-time comparison to avoid token guessing."""
+    token = request.GET.get('token', '')
+    if not token:
+        return None
+    episode = get_object_or_404(Episode, pk=pk)
+    if episode.overlay_token and secrets.compare_digest(str(token), str(episode.overlay_token)):
+        return episode
+    return None
+
+
+def _render_qr_png(url):
+    import qrcode
+
+    img = qrcode.make(url)
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    response = HttpResponse(buf.getvalue(), content_type='image/png')
+    response['Cache-Control'] = 'public, max-age=300'
+    return response
+
+
+class SecondScreenView(EpisodeTabMixin, TemplateView):
+    """
+    Full-screen live display for a second monitor: show branding, the
+    current segment, and its sponsor with a QR code. Read-only — the
+    active segment is set from the Control Room.
+
+    Two ways in:
+      * Logged-in staff, for viewing on a second monitor (EpisodeTabMixin).
+      * ?overlay=1&token=<episode.overlay_token> for use as an OBS Studio
+        Browser Source. OBS's browser source can't log in (it doesn't pass
+        keyboard input to the page), so the token authorizes read-only
+        access without a session. Regenerate the token to revoke old URLs.
+    """
+
+    template_name = 'production_ledger/second_screen.html'
+    active_tab = 'second_screen'
+    minimum_role = Role.GUEST
+
+    def dispatch(self, request, *args, **kwargs):
+        self._token_episode = _episode_for_overlay_token(request, kwargs.get('pk'))
+        if self._token_episode is not None:
+            # Token path: skip login/RBAC, render directly.
+            return TemplateView.dispatch(self, request, *args, **kwargs)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        if getattr(self, '_token_episode', None) is not None:
+            # Bypass EpisodeTabMixin's context (which needs an authenticated
+            # user for role lookups) when authorized purely by token.
+            context = TemplateView.get_context_data(self, **kwargs)
+            episode = self._token_episode
+            context['episode'] = episode
+        else:
+            context = super().get_context_data(**kwargs)
+            episode = self.get_episode()
+        overlay_token = self.request.GET.get('token', '')
+        state = _second_screen_state(episode, overlay_token=overlay_token or None)
+        context['state'] = state
+        context['state_json'] = json.dumps(state)
+        context['is_overlay'] = self.request.GET.get('overlay') == '1'
+        context['overlay_token'] = overlay_token
+        return context
+
+
+class SecondScreenStateView(EpisodeTabMixin, View):
+    """JSON endpoint the second-screen page polls for live updates. Also
+    reachable via ?token=<episode.overlay_token> for the OBS overlay."""
+
+    minimum_role = Role.GUEST
+
+    def dispatch(self, request, *args, **kwargs):
+        self._token_episode = _episode_for_overlay_token(request, kwargs.get('pk'))
+        if self._token_episode is not None:
+            return View.dispatch(self, request, *args, **kwargs)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        token_episode = getattr(self, '_token_episode', None)
+        episode = token_episode or self.get_episode()
+        overlay_token = request.GET.get('token') if token_episode else None
+        return JsonResponse(_second_screen_state(episode, overlay_token=overlay_token))
+
+
+class SponsorQRCodeView(LoginRequiredMixin, OrganizationMixin, RoleMixin, View):
+    """Renders a PNG QR code pointing at a sponsor's website/ad URL."""
+
+    minimum_role = Role.GUEST
+
+    def get(self, request, *args, **kwargs):
+        sponsor = get_object_or_404(Sponsor, pk=kwargs['pk'])
+        self.check_permissions(sponsor.show)
+
+        if not sponsor.website_url:
+            raise Http404('Sponsor has no website URL to encode')
+
+        return _render_qr_png(sponsor.website_url)
+
+
+class OverlayQRCodeView(View):
+    """QR code for the OBS overlay, authorized by an episode overlay token
+    rather than a login. Encodes the current active segment's sponsor URL."""
+
+    def get(self, request, *args, **kwargs):
+        episode = _episode_for_overlay_token(request, kwargs.get('pk'))
+        if episode is None:
+            raise Http404('Invalid or missing overlay token')
+
+        segment = episode.active_segment
+        sponsor = segment.sponsor if segment else None
+        if not sponsor or not sponsor.website_url:
+            raise Http404('No sponsor URL to encode for the current segment')
+
+        return _render_qr_png(sponsor.website_url)
 
 
 # =============================================================================
@@ -1364,5 +1670,3 @@ class ExportFullPackageView(ExportMixin, View):
         return response
 
 
-# Need to import models for the aggregate function
-from django.db import models

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ episode.show.name }} — Live</title>
+    <style>
+        :root {
+            --brand-color: {{ state.brand_primary_color|default:"#6366F1" }};
+        }
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: #0B1220;
+            color: #F8FAFC;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+        }
+        body.overlay, body.overlay .stage {
+            background: transparent;
+        }
+        .stage {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-size: cover;
+            background-position: center;
+            background-color: #0B1220;
+            transition: opacity 0.4s ease;
+        }
+        .stage.bg-image { background-image: var(--bg-image-url); }
+        .stage::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(11,18,32,0.35) 0%, rgba(11,18,32,0.75) 100%);
+            pointer-events: none;
+        }
+        /* Overlay mode (OBS Browser Source): no opaque background/scrim so the
+           camera feed shows through underneath; keep card/sponsor-bar chrome
+           since those have their own semi-transparent backing. */
+        body.overlay .stage.bg-image { background-image: none !important; }
+        body.overlay .stage::after { display: none; }
+        body.overlay .conn-dot { display: none; }
+        .content { position: relative; z-index: 1; text-align: center; padding: 4vh 6vw; width: 100%; }
+
+        .show-logo { max-height: 12vh; max-width: 60vw; margin-bottom: 3vh; object-fit: contain; }
+        .show-name { font-size: 2.2vw; font-weight: 600; letter-spacing: 0.02em; color: #CBD5E1; margin: 0 0 1vh; }
+        .episode-title { font-size: 1.3vw; color: #94A3B8; margin: 0 0 5vh; }
+
+        .segment-card {
+            border: 2px solid var(--brand-color);
+            border-radius: 1.2vw;
+            padding: 3vh 4vw;
+            background: rgba(15, 23, 42, 0.55);
+            backdrop-filter: blur(6px);
+            display: inline-block;
+            max-width: 80vw;
+        }
+        .segment-label { font-size: 1vw; text-transform: uppercase; letter-spacing: 0.15em; color: var(--brand-color); margin-bottom: 1vh; }
+        .segment-title { font-size: 3.2vw; font-weight: 700; margin: 0; line-height: 1.15; }
+        .segment-purpose { font-size: 1.3vw; color: #CBD5E1; margin-top: 1.5vh; max-width: 60vw; margin-left: auto; margin-right: auto; }
+
+        .sponsor-bar {
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 3vw;
+            padding: 2.5vh 4vw;
+            background: rgba(8, 12, 22, 0.88);
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+        .sponsor-info { display: flex; align-items: center; gap: 2vw; text-align: left; flex: 1; min-width: 0; }
+        .sponsor-logo { max-height: 8vh; max-width: 14vw; object-fit: contain; }
+        .sponsor-name-label { font-size: 0.9vw; text-transform: uppercase; letter-spacing: 0.12em; color: #94A3B8; margin: 0; }
+        .sponsor-name { font-size: 1.8vw; font-weight: 700; margin: 0.3vh 0; }
+        .sponsor-copy { font-size: 1.1vw; color: #E2E8F0; margin: 0; max-width: 40vw; }
+        .sponsor-qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.8vh; flex-shrink: 0; }
+        .sponsor-qr-wrap img { width: 9vh; height: 9vh; background: #fff; padding: 0.6vh; border-radius: 0.6vh; }
+        .sponsor-qr-caption { font-size: 0.85vw; color: #94A3B8; }
+
+        .no-segment .segment-title { font-size: 2vw; color: #94A3B8; font-weight: 500; }
+
+        .conn-dot {
+            position: absolute; top: 1.2vh; right: 1.2vw; z-index: 3;
+            width: 0.7vh; height: 0.7vh; border-radius: 50%;
+            background: #22C55E; opacity: 0.6;
+        }
+        .conn-dot.stale { background: #EF4444; }
+    </style>
+</head>
+<body class="{% if is_overlay %}overlay{% endif %}">
+    <div class="conn-dot" id="conn-dot" title="Live connection status"></div>
+    <div class="stage" id="stage">
+        <div class="content" id="content"></div>
+    </div>
+
+    <script>
+        const STATE_URL = "{% url 'production_ledger:second_screen_state' episode.pk %}";
+        const IS_OVERLAY = {{ is_overlay|yesno:"true,false" }};
+        const POLL_MS = 4000;
+        let lastGoodFetch = Date.now();
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str == null ? '' : String(str);
+            return div.innerHTML;
+        }
+
+        function render(state) {
+            const stage = document.getElementById('stage');
+            const content = document.getElementById('content');
+
+            if (state.brand_primary_color) {
+                document.documentElement.style.setProperty('--brand-color', state.brand_primary_color);
+            }
+
+            if (state.background_url) {
+                stage.classList.add('bg-image');
+                stage.style.setProperty('--bg-image-url', `url("${state.background_url}")`);
+            } else {
+                stage.classList.remove('bg-image');
+            }
+
+            // In overlay mode, show nothing but the segment card once a
+            // segment is live — the camera feed is the background, not our
+            // stage, so there's no "stand by" placeholder or branding to
+            // show when nothing is live.
+            if (IS_OVERLAY && !state.segment) {
+                content.innerHTML = '';
+                let existingBar = document.getElementById('sponsor-bar');
+                if (existingBar) existingBar.remove();
+                return;
+            }
+
+            let html = '';
+            if (!IS_OVERLAY) {
+                if (state.show_logo_url) {
+                    html += `<img class="show-logo" src="${state.show_logo_url}" alt="${escapeHtml(state.show_name)}">`;
+                } else {
+                    html += `<div class="show-name">${escapeHtml(state.show_name)}</div>`;
+                }
+                html += `<div class="episode-title">${escapeHtml(state.episode_title)}</div>`;
+            }
+
+            if (state.segment) {
+                html += `
+                    <div class="segment-card">
+                        <div class="segment-label">Now</div>
+                        <div class="segment-title">${escapeHtml(state.segment.title)}</div>
+                        ${state.segment.purpose ? `<div class="segment-purpose">${escapeHtml(state.segment.purpose)}</div>` : ''}
+                    </div>`;
+            } else {
+                html += `
+                    <div class="segment-card no-segment">
+                        <div class="segment-title">Stand by…</div>
+                    </div>`;
+            }
+
+            content.innerHTML = html;
+
+            let existingBar = document.getElementById('sponsor-bar');
+            if (existingBar) existingBar.remove();
+
+            if (state.sponsor) {
+                const bar = document.createElement('div');
+                bar.className = 'sponsor-bar';
+                bar.id = 'sponsor-bar';
+                bar.innerHTML = `
+                    <div class="sponsor-info">
+                        ${state.sponsor.logo_url ? `<img class="sponsor-logo" src="${state.sponsor.logo_url}" alt="${escapeHtml(state.sponsor.name)}">` : ''}
+                        <div>
+                            <p class="sponsor-name-label">Segment Sponsor</p>
+                            <p class="sponsor-name">${escapeHtml(state.sponsor.name)}</p>
+                            ${state.sponsor.ad_copy ? `<p class="sponsor-copy">${escapeHtml(state.sponsor.ad_copy)}</p>` : ''}
+                        </div>
+                    </div>
+                    ${state.sponsor.qr_code_url ? `
+                    <div class="sponsor-qr-wrap">
+                        <img src="${state.sponsor.qr_code_url}" alt="QR code to ${escapeHtml(state.sponsor.name)}">
+                        <span class="sponsor-qr-caption">Scan for details</span>
+                    </div>` : ''}
+                `;
+                document.body.appendChild(bar);
+            }
+        }
+
+        async function poll() {
+            try {
+                const res = await fetch(STATE_URL, { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) throw new Error('bad status ' + res.status);
+                const state = await res.json();
+                render(state);
+                lastGoodFetch = Date.now();
+                document.getElementById('conn-dot').classList.remove('stale');
+            } catch (err) {
+                if (Date.now() - lastGoodFetch > POLL_MS * 3) {
+                    document.getElementById('conn-dot').classList.add('stale');
+                }
+            }
+        }
+
+        render(JSON.parse("{{ state_json|escapejs }}"));
+        poll();
+        setInterval(poll, POLL_MS);
+    </script>
+</body>
+</html>
