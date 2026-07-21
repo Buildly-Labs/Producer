@@ -108,8 +108,12 @@
     <script>
         const STATE_URL = "{% url 'production_ledger:second_screen_state' episode.pk %}";
         const IS_OVERLAY = {{ is_overlay|yesno:"true,false" }};
-        const POLL_MS = 4000;
+        const POLL_MS_MIN = 4000;
+        const POLL_MS_MAX = 30000;
         let lastGoodFetch = Date.now();
+        let pollTimeoutId = null;
+        let failureCount = 0;
+        let pollIntervalMs = POLL_MS_MIN;
 
         function escapeHtml(str) {
             const div = document.createElement('div');
@@ -203,16 +207,24 @@
                 render(state);
                 lastGoodFetch = Date.now();
                 document.getElementById('conn-dot').classList.remove('stale');
+                // Reset exponential backoff on success
+                failureCount = 0;
+                pollIntervalMs = POLL_MS_MIN;
             } catch (err) {
-                if (Date.now() - lastGoodFetch > POLL_MS * 3) {
+                failureCount++;
+                // Exponential backoff: 4s, 8s, 16s, capped at 30s
+                pollIntervalMs = Math.min(POLL_MS_MIN * Math.pow(2, Math.min(failureCount - 1, 2)), POLL_MS_MAX);
+                if (Date.now() - lastGoodFetch > POLL_MS_MIN * 3) {
                     document.getElementById('conn-dot').classList.add('stale');
                 }
+            } finally {
+                // Schedule next poll using the calculated interval
+                pollTimeoutId = setTimeout(poll, pollIntervalMs);
             }
         }
 
         render(JSON.parse("{{ state_json|escapejs }}"));
         poll();
-        setInterval(poll, POLL_MS);
     </script>
 </body>
 </html>

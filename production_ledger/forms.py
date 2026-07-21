@@ -185,12 +185,20 @@ class SegmentForm(TailwindFormMixin, forms.ModelForm):
     def __init__(self, *args, show=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['sponsor'].required = False
+
+        # Determine which show to filter sponsors by
         if show is not None:
-            self.fields['sponsor'].queryset = Sponsor.objects.filter(show=show, is_active=True)
+            sponsor_show = show
         elif self.instance and self.instance.pk:
-            self.fields['sponsor'].queryset = Sponsor.objects.filter(show=self.instance.episode.show, is_active=True)
+            sponsor_show = self.instance.episode.show
         else:
-            self.fields['sponsor'].queryset = Sponsor.objects.none()
+            # Form instantiated without show and without instance: raise to catch bugs early
+            raise ValueError(
+                "SegmentForm requires either 'show=' kwarg or an instance with a saved episode. "
+                "Ensure the view passes show=episode.show when instantiating the form."
+            )
+
+        self.fields['sponsor'].queryset = Sponsor.objects.filter(show=sponsor_show, is_active=True)
 
 
 SegmentFormSet = forms.inlineformset_factory(

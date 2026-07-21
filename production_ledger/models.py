@@ -323,6 +323,14 @@ class Episode(BaseModel):
     def __str__(self):
         return f"{self.show.name}: {self.title}"
 
+    def clean(self):
+        """Validate episode invariants."""
+        super().clean()
+        if self.active_segment and self.active_segment.episode_id != self.pk:
+            raise ValidationError(
+                "active_segment must belong to this episode."
+            )
+
     def regenerate_overlay_token(self):
         """Issue a fresh overlay token, invalidating any previously-shared URL."""
         self.overlay_token = generate_overlay_token()

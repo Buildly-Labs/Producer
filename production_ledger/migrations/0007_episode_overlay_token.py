@@ -7,11 +7,21 @@ from django.db import migrations, models
 def unique_tokens_for_existing_episodes(apps, schema_editor):
     """AddField's callable default is evaluated once, so every pre-existing
     episode is backfilled with the SAME token. Reissue a distinct token per
-    row so old episodes don't share one overlay link."""
+    row so old episodes don't share one overlay link. Uses bulk_update for
+    efficiency on large datasets."""
     Episode = apps.get_model("production_ledger", "Episode")
-    for episode in Episode.objects.all().iterator():
+    episodes = list(Episode.objects.all().values_list('pk', flat=True))
+
+    if not episodes:
+        return
+
+    # Fetch all episodes and reassign tokens
+    episodes_to_update = Episode.objects.filter(pk__in=episodes)
+    for episode in episodes_to_update:
         episode.overlay_token = production_ledger.models.generate_overlay_token()
-        episode.save(update_fields=["overlay_token"])
+
+    # Bulk update for efficiency: one UPDATE query instead of N
+    Episode.objects.bulk_update(episodes_to_update, ['overlay_token'], batch_size=500)
 
 
 def noop_reverse(apps, schema_editor):
