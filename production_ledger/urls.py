@@ -14,32 +14,24 @@ urlpatterns = [
     # Authentication (namespaced so templates can use production_ledger:login)
     path('auth/login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
     path('auth/logout/', auth_views.LogoutView.as_view(), name='logout'),
-    # register replaced with request-access flow
-    path('request-access/', views.RequestAccessView.as_view(), name='request_access'),
-    path('invite/<str:token>/', views.AcceptInviteView.as_view(), name='accept_invite'),
-
     # Dashboard
     path('', views.DashboardView.as_view(), name='dashboard'),
 
-    # Guest portal
-    path('guest/', views.GuestPortalView.as_view(), name='guest_portal'),
-    path('shows/<uuid:show_id>/request-join/', views.RequestShowJoinView.as_view(), name='request_show_join'),
-
-    # Admin user management
-    path('users/', views.UserManagementView.as_view(), name='user_management'),
-    path('users/invite/', views.InviteUserView.as_view(), name='invite_user'),
-    path('users/request/<uuid:pk>/review/', views.ReviewAccessRequestView.as_view(), name='review_access_request'),
-    path('users/<int:pk>/action/', views.UserAccountActionView.as_view(), name='user_account_action'),
-    path('users/invitations/<uuid:pk>/action/', views.InvitationActionView.as_view(), name='invitation_action'),
-    
-    # Content list views
-    path('transcripts/', views.TranscriptListView.as_view(), name='transcript_list'),
-    path('assets/', views.MediaAssetListView.as_view(), name='asset_list'),
-    path('ai-tools/', views.AIToolsView.as_view(), name='ai_tools'),
-    
-    # System pages
-    path('integrations/', views.IntegrationsView.as_view(), name='integrations'),
-    path('settings/', views.SettingsView.as_view(), name='settings'),
+    # TODO: These views need to be implemented or replaced with API endpoints
+    # path('request-access/', views.RequestAccessView.as_view(), name='request_access'),  # MISSING VIEW
+    # path('invite/<str:token>/', views.AcceptInviteView.as_view(), name='accept_invite'),  # MISSING VIEW
+    # path('guest/', views.GuestPortalView.as_view(), name='guest_portal'),  # MISSING VIEW
+    # path('shows/<uuid:show_id>/request-join/', views.RequestShowJoinView.as_view(), name='request_show_join'),  # MISSING VIEW
+    # path('users/', views.UserManagementView.as_view(), name='user_management'),  # MISSING VIEW
+    # path('users/invite/', views.InviteUserView.as_view(), name='invite_user'),  # MISSING VIEW
+    # path('users/request/<uuid:pk>/review/', views.ReviewAccessRequestView.as_view(), name='review_access_request'),  # MISSING VIEW
+    # path('users/<int:pk>/action/', views.UserAccountActionView.as_view(), name='user_account_action'),  # MISSING VIEW
+    # path('users/invitations/<uuid:pk>/action/', views.InvitationActionView.as_view(), name='invitation_action'),  # MISSING VIEW
+    # path('transcripts/', views.TranscriptListView.as_view(), name='transcript_list'),  # MISSING VIEW
+    # path('assets/', views.MediaAssetListView.as_view(), name='asset_list'),  # MISSING VIEW
+    # path('ai-tools/', views.AIToolsView.as_view(), name='ai_tools'),  # MISSING VIEW
+    # path('integrations/', views.IntegrationsView.as_view(), name='integrations'),  # MISSING VIEW
+    # path('settings/', views.SettingsView.as_view(), name='settings'),  # MISSING VIEW
     
     # Shows
     path('shows/', views.ShowListView.as_view(), name='show_list'),
@@ -48,7 +40,10 @@ urlpatterns = [
     path('shows/<uuid:pk>/edit/', views.ShowUpdateView.as_view(), name='show_edit'),
     path('shows/<uuid:pk>/roles/', views.ShowRolesView.as_view(), name='show_roles'),
     path('shows/<uuid:pk>/segment-templates/', views.SegmentTemplateListView.as_view(), name='segment_templates'),
-
+    path('shows/<uuid:pk>/youtube/connect/', views.YoutubeOAuthStartView.as_view(), name='youtube_oauth_start'),
+    path('shows/<uuid:pk>/youtube/callback/', views.YoutubeOAuthCallbackView.as_view(), name='youtube_oauth_callback'),
+    path('shows/<uuid:pk>/youtube/disconnect/', views.YoutubeDisconnectView.as_view(), name='youtube_disconnect'),
+    path('shows/<slug:slug>/feed.xml', views.ShowPodcastFeedView.as_view(), name='show_podcast_feed'),
 
     # Episodes
     path('episodes/', views.EpisodeListView.as_view(), name='episode_list'),
@@ -129,12 +124,12 @@ urlpatterns = [
     path('exports/episode/<uuid:pk>/guest-brief/<uuid:guest_id>/', views.ExportGuestBriefView.as_view(), name='export_guest_brief'),
     path('exports/episode/<uuid:pk>/package/', views.ExportFullPackageView.as_view(), name='export_full_package'),
     
-    # Comments
-    path('comments/', views.CommentListView.as_view(), name='comment_list'),
-    path('comments/add/', views.ManualCommentCreateView.as_view(), name='comment_add'),
-    path('comments/<uuid:pk>/reply/', views.CommentReplyView.as_view(), name='comment_reply'),
-    path('comments/<uuid:pk>/status/', views.CommentStatusUpdateView.as_view(), name='comment_status'),
-    path('shows/<uuid:pk>/sync-comments/', views.CommentSyncView.as_view(), name='comment_sync'),
+    # Comments - TODO: These views need to be implemented
+    # path('comments/', views.CommentListView.as_view(), name='comment_list'),  # MISSING VIEW
+    # path('comments/add/', views.ManualCommentCreateView.as_view(), name='comment_add'),  # MISSING VIEW
+    # path('comments/<uuid:pk>/reply/', views.CommentReplyView.as_view(), name='comment_reply'),  # MISSING VIEW
+    # path('comments/<uuid:pk>/status/', views.CommentStatusUpdateView.as_view(), name='comment_status'),  # MISSING VIEW
+    # path('shows/<uuid:pk>/sync-comments/', views.CommentSyncView.as_view(), name='comment_sync'),  # MISSING VIEW
 
     # API endpoints
     path('api/', include('production_ledger.api_urls')),
