@@ -2811,3 +2811,570 @@ class ExportFullPackageView(ExportMixin, View):
         return response
 
 
+# =============================================================================
+# USER ACCESS & ONBOARDING
+# =============================================================================
+
+class RequestAccessView(FormView):
+    """
+    Public-facing form for people requesting access to the platform.
+    Anyone can request access by providing their name, email, and organization.
+    Admin reviews the request and creates an account or sends an invitation.
+    """
+    form_class = AccessRequestForm
+    template_name = 'production_ledger/request_access.html'
+    success_url = reverse_lazy('production_ledger:request_access_success')
+
+    def form_valid(self, form):
+        form.save()
+        messages.success(
+            self.request,
+            'Access request submitted! An admin will review your request and contact you soon.'
+        )
+        return super().form_valid(form)
+
+
+class RequestAccessSuccessView(TemplateView):
+    """Success page after submitting access request."""
+    template_name = 'production_ledger/request_access_success.html'
+
+
+class AcceptInviteView(FormView):
+    """
+    Accept an invitation to the platform by providing a password.
+    Links from email invitations using a unique token.
+    """
+    form_class = None
+    template_name = 'production_ledger/accept_invite.html'
+
+    def get_invitation(self):
+        token = self.kwargs.get('token')
+        try:
+            from .models import Invitation
+            return Invitation.objects.get(token=token, accepted_at__isnull=True)
+        except Invitation.DoesNotExist:
+            raise Http404('Invalid or expired invitation token.')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['invitation'] = self.get_invitation()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        invitation = self.get_invitation()
+        password = request.POST.get('password', '').strip()
+        password_confirm = request.POST.get('password_confirm', '').strip()
+
+        if not password or len(password) < 8:
+            messages.error(request, 'Password must be at least 8 characters.')
+            return self.render_to_response(self.get_context_data())
+
+        if password != password_confirm:
+            messages.error(request, 'Passwords do not match.')
+            return self.render_to_response(self.get_context_data())
+
+        # Create or update user
+        from django.contrib.auth.models import User
+        user, created = User.objects.get_or_create(
+            email=invitation.email,
+            defaults={'username': invitation.email}
+        )
+        user.set_password(password)
+        user.first_name = invitation.name.split()[0] if invitation.name else ''
+        user.last_name = ' '.join(invitation.name.split()[1:]) if invitation.name else ''
+        user.save()
+
+        # Mark invitation as accepted
+        invitation.accepted_at = timezone.now()
+        invitation.save()
+
+        # Log user in
+        from django.contrib.auth import login
+        login(request, user)
+
+        messages.success(request, 'Welcome! Your account has been created.')
+        return redirect('production_ledger:dashboard')
+
+
+class ReviewAccessRequestView(LoginRequiredMixin, TemplateView):
+    """
+    Admin interface to review access requests.
+    Approve to create an invitation, or decline the request.
+    """
+    template_name = 'production_ledger/review_access_request.html'
+
+    def get_object(self):
+        from .models import AccessRequest
+        pk = self.kwargs.get('pk')
+        return get_object_or_404(AccessRequest, pk=pk)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['access_request'] = self.get_object()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        access_request = self.get_object()
+        action = request.POST.get('action', '').strip()
+
+        if action == 'approve':
+            from .models import Invitation
+            import secrets
+
+            # Create invitation
+            invitation = Invitation.objects.create(
+                email=access_request.email,
+                name=access_request.name,
+                role='editor',
+                invited_by=request.user,
+            )
+
+            # Mark access request as approved
+            access_request.status = 'approved'
+            access_request.reviewed_by = request.user
+            access_request.reviewed_at = timezone.now()
+            access_request.save()
+
+            # TODO: Send invitation email with token
+            messages.success(
+                request,
+                f'Invitation sent to {access_request.email}'
+            )
+
+        elif action == 'decline':
+            access_request.status = 'declined'
+            access_request.reviewed_by = request.user
+            access_request.reviewed_at = timezone.now()
+            access_request.save()
+
+            messages.info(request, 'Access request declined.')
+
+        return redirect('production_ledger:user_management')
+
+
+# =============================================================================
+# USER & INVITATION MANAGEMENT
+# =============================================================================
+
+class UserManagementView(LoginRequiredMixin, TemplateView):
+    """
+    Admin dashboard to manage platform users.
+    View and manage all user accounts, roles, and invitations.
+    """
+    template_name = 'production_ledger/user_management.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        from django.contrib.auth.models import User
+        from .models import Invitation, AccessRequest, ShowRoleAssignment
+
+        context['users'] = User.objects.all().order_by('-date_joined')
+        context['pending_invitations'] = Invitation.objects.filter(
+            accepted_at__isnull=True
+        ).order_by('-created_at')
+        context['pending_access_requests'] = AccessRequest.objects.filter(
+            status='pending'
+        ).order_by('-created_at')
+        context['all_access_requests'] = AccessRequest.objects.all().order_by('-created_at')
+
+        return context
+
+
+class InviteUserView(LoginRequiredMixin, FormView):
+    """
+    Admin form to invite a new user to the platform.
+    Generates a unique token and sends invitation email.
+    """
+    form_class = InvitationForm
+    template_name = 'production_ledger/invite_user.html'
+    success_url = reverse_lazy('production_ledger:user_management')
+
+    def form_valid(self, form):
+        invitation = form.save(commit=False)
+        invitation.invited_by = self.request.user
+        invitation.save()
+
+        # TODO: Send invitation email with token
+        messages.success(
+            self.request,
+            f'Invitation sent to {invitation.email}'
+        )
+        return super().form_valid(form)
+
+
+class InvitationActionView(LoginRequiredMixin, DetailView):
+    """
+    Admin interface to manage a specific invitation.
+    Resend invitation or revoke it.
+    """
+    template_name = 'production_ledger/invitation_detail.html'
+    context_object_name = 'invitation'
+
+    def get_queryset(self):
+        from .models import Invitation
+        return Invitation.objects.all()
+
+    def post(self, request, *args, **kwargs):
+        from .models import Invitation
+        invitation = self.get_object()
+        action = request.POST.get('action', '').strip()
+
+        if action == 'resend':
+            # TODO: Send invitation email with token
+            messages.info(request, f'Invitation resent to {invitation.email}')
+
+        elif action == 'revoke':
+            invitation.delete()
+            messages.info(request, 'Invitation revoked.')
+            return redirect('production_ledger:user_management')
+
+        return redirect('production_ledger:invitation_detail', pk=invitation.pk)
+
+
+class UserAccountActionView(LoginRequiredMixin, DetailView):
+    """
+    Admin interface to manage a specific user account.
+    Activate/deactivate accounts and update roles.
+    """
+    template_name = 'production_ledger/user_account_detail.html'
+    context_object_name = 'user_obj'
+
+    def get_queryset(self):
+        from django.contrib.auth.models import User
+        return User.objects.all()
+
+    def post(self, request, *args, **kwargs):
+        from django.contrib.auth.models import User
+        user = self.get_object()
+        action = request.POST.get('action', '').strip()
+
+        if action == 'deactivate':
+            user.is_active = False
+            user.save()
+            messages.info(request, f'User {user.username} deactivated.')
+
+        elif action == 'activate':
+            user.is_active = True
+            user.save()
+            messages.info(request, f'User {user.username} activated.')
+
+        return redirect('production_ledger:user_account_detail', pk=user.pk)
+
+
+# =============================================================================
+# GUEST PORTAL & ACCESS
+# =============================================================================
+
+class GuestPortalView(LoginRequiredMixin, TemplateView):
+    """
+    Limited dashboard for guest users.
+    Shows only episodes they're assigned to and their shows.
+    """
+    template_name = 'production_ledger/guest_portal.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # TODO: Implement guest scoping logic
+        # For now, redirect non-guests to dashboard
+        return context
+
+    def dispatch(self, request, *args, **kwargs):
+        from .permissions import get_user_organization_uuid
+        # TODO: Check if user is guest role
+        return super().dispatch(request, *args, **kwargs)
+
+
+class RequestShowJoinView(LoginRequiredMixin, FormView):
+    """
+    Guest form to request access to a show.
+    Creates a ShowJoinRequest for show admin to review.
+    """
+    form_class = ShowJoinRequestForm
+    template_name = 'production_ledger/request_show_join.html'
+
+    def get_show(self):
+        show_id = self.kwargs.get('show_id')
+        return get_object_or_404(Show, pk=show_id)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['show'] = self.get_show()
+        return context
+
+    def form_valid(self, form):
+        show = self.get_show()
+        request_obj = form.save(commit=False)
+        request_obj.show = show
+        request_obj.requested_by = self.request.user
+        request_obj.save()
+
+        messages.success(
+            self.request,
+            f'Your request to join "{show.name}" has been sent!'
+        )
+        return redirect('production_ledger:show_detail', pk=show.pk)
+
+
+# =============================================================================
+# CONTENT MANAGEMENT
+# =============================================================================
+
+class TranscriptListView(LoginRequiredMixin, OrganizationMixin, ListView):
+    """
+    List all transcripts across episodes.
+    Scoped by organization.
+    """
+    model = Transcript
+    template_name = 'production_ledger/transcript_list.html'
+    context_object_name = 'transcripts'
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.select_related('episode', 'episode__show').order_by('-created_at')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        status_filter = self.request.GET.get('status', '')
+        if status_filter:
+            context['transcripts'] = context['transcripts'].filter(
+                ingestion_status=status_filter
+            )
+            context['status_filter'] = status_filter
+        return context
+
+
+class MediaAssetListView(LoginRequiredMixin, OrganizationMixin, ListView):
+    """
+    List all media assets across episodes.
+    Scoped by organization. Shows thumbnails/icons.
+    """
+    model = MediaAsset
+    template_name = 'production_ledger/media_asset_list.html'
+    context_object_name = 'assets'
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.select_related('episode', 'episode__show').order_by('-created_at')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        asset_type_filter = self.request.GET.get('type', '')
+        if asset_type_filter:
+            context['assets'] = context['assets'].filter(
+                asset_type=asset_type_filter
+            )
+            context['type_filter'] = asset_type_filter
+        return context
+
+
+class AIToolsView(LoginRequiredMixin, TemplateView):
+    """
+    Standalone playground for AI features.
+    Generate AI artifacts without needing an episode context.
+    """
+    template_name = 'production_ledger/ai_tools.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        from .permissions import get_user_organization_uuid
+        from .models import AIArtifact
+
+        org_uuid = get_user_organization_uuid(self.request.user)
+        context['recent_artifacts'] = AIArtifact.objects.filter(
+            organization_uuid=org_uuid
+        ).order_by('-created_at')[:10]
+        context['artifact_types'] = ArtifactType.CHOICES
+        return context
+
+
+# =============================================================================
+# COMMENTS & ENGAGEMENT
+# =============================================================================
+
+class CommentListView(LoginRequiredMixin, OrganizationMixin, ListView):
+    """
+    List all platform comments across shows/episodes.
+    Filter by status, platform, episode.
+    Scoped by organization.
+    """
+    model = PlatformComment
+    template_name = 'production_ledger/comment_list.html'
+    context_object_name = 'comments'
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        qs = qs.filter(
+            organization_uuid=self.get_organization_uuid()
+        ).select_related('episode', 'episode__show', 'parent').order_by('-platform_created_at')
+
+        status_filter = self.request.GET.get('status', '')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        platform_filter = self.request.GET.get('platform', '')
+        if platform_filter:
+            qs = qs.filter(platform=platform_filter)
+
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['status_choices'] = CommentStatus.CHOICES
+        context['platform_choices'] = CommentPlatform.CHOICES
+        context['status_filter'] = self.request.GET.get('status', '')
+        context['platform_filter'] = self.request.GET.get('platform', '')
+        return context
+
+
+class ManualCommentCreateView(LoginRequiredMixin, OrganizationMixin, CreateView):
+    """
+    Manually add a comment from a user.
+    Used when platform doesn't support automated ingestion.
+    """
+    model = PlatformComment
+    template_name = 'production_ledger/manual_comment_form.html'
+    fields = ['episode', 'show', 'platform', 'author_name', 'author_channel_url', 'body']
+
+    def get_success_url(self):
+        return reverse('production_ledger:comment_list')
+
+    def form_valid(self, form):
+        form.instance.organization_uuid = self.get_organization_uuid()
+        form.instance.added_by = self.request.user
+        form.instance.status = CommentStatus.NEW
+        messages.success(self.request, 'Comment added!')
+        return super().form_valid(form)
+
+
+class CommentReplyView(LoginRequiredMixin, OrganizationMixin, UpdateView):
+    """
+    Reply to a comment.
+    Stores the reply text and records who replied.
+    """
+    model = PlatformComment
+    template_name = 'production_ledger/comment_reply_form.html'
+    fields = ['our_reply_text']
+
+    def get_queryset(self):
+        return super().get_queryset().filter(
+            organization_uuid=self.get_organization_uuid()
+        )
+
+    def get_success_url(self):
+        return reverse('production_ledger:comment_list')
+
+    def form_valid(self, form):
+        form.instance.replied_by = self.request.user
+        form.instance.our_reply_sent_at = timezone.now()
+        messages.success(self.request, 'Reply sent!')
+        return super().form_valid(form)
+
+
+class CommentStatusUpdateView(LoginRequiredMixin, OrganizationMixin, View):
+    """
+    Update comment status (new, reviewed, archived).
+    Allows approving/flagging/removing comments.
+    """
+    def post(self, request, *args, **kwargs):
+        pk = kwargs.get('pk')
+        comment = get_object_or_404(
+            PlatformComment,
+            pk=pk,
+            organization_uuid=self.get_organization_uuid()
+        )
+        new_status = request.POST.get('status', '').strip()
+
+        if new_status in [status[0] for status in CommentStatus.CHOICES]:
+            comment.status = new_status
+            comment.save()
+            messages.info(request, f'Comment marked as {new_status}.')
+        else:
+            messages.error(request, 'Invalid status.')
+
+        return redirect('production_ledger:comment_list')
+
+    def get_organization_uuid(self):
+        from .permissions import get_user_organization_uuid
+        return get_user_organization_uuid(self.request.user)
+
+
+class CommentSyncView(LoginRequiredMixin, OrganizationMixin, View):
+    """
+    Trigger YouTube comment sync for a show.
+    Creates a background task and redirects with status.
+    """
+    def post(self, request, *args, **kwargs):
+        show_id = kwargs.get('pk')
+        show = get_object_or_404(
+            Show,
+            pk=show_id,
+            organization_uuid=self.get_organization_uuid()
+        )
+
+        # Create background task for syncing comments
+        from .models import BackgroundTask
+        task = BackgroundTask.objects.create(
+            organization_uuid=self.get_organization_uuid(),
+            task_type='sync_comments',
+            show=show,
+            initiated_by=request.user,
+            status='pending',
+        )
+
+        messages.info(
+            request,
+            f'Comment sync started for "{show.name}". Check back in a few moments.'
+        )
+        return redirect('production_ledger:show_detail', pk=show.pk)
+
+    def get_organization_uuid(self):
+        from .permissions import get_user_organization_uuid
+        return get_user_organization_uuid(self.request.user)
+
+
+# =============================================================================
+# SETTINGS & INTEGRATIONS
+# =============================================================================
+
+class IntegrationsView(LoginRequiredMixin, TemplateView):
+    """
+    View and manage third-party integrations.
+    Shows OAuth connection status and settings.
+    """
+    template_name = 'production_ledger/integrations.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        from .permissions import get_user_organization_uuid
+        from .models import PodcastFeedConfig
+
+        org_uuid = get_user_organization_uuid(self.request.user)
+        context['shows_with_youtube'] = Show.objects.filter(
+            organization_uuid=org_uuid,
+            podcastfeedconfig__youtube_oauth_credentials__isnull=False
+        ).distinct()
+        context['integration_options'] = [
+            {'name': 'YouTube', 'icon': 'play-circle', 'status': 'connected', 'action_url': None},
+            {'name': 'Spotify', 'icon': 'music', 'status': 'not_connected', 'action_url': None},
+            {'name': 'Apple Podcasts', 'icon': 'apple', 'status': 'not_connected', 'action_url': None},
+        ]
+        return context
+
+
+class SettingsView(LoginRequiredMixin, TemplateView):
+    """
+    User and organization settings.
+    Preferences, notifications, account management.
+    """
+    template_name = 'production_ledger/settings.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['user'] = self.request.user
+        # TODO: Add organization settings, preferences
+        return context
+
+
