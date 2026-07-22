@@ -51,6 +51,7 @@ INSTALLED_APPS_THIRD_PARTIES = [
 INSTALLED_APPS_LOCAL = [
     'logic',
     'production_ledger',
+    'splice',
 ]
 
 INSTALLED_APPS = INSTALLED_APPS_DJANGO + INSTALLED_APPS_THIRD_PARTIES + \
