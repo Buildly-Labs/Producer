@@ -14,7 +14,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import models, transaction
 from django.http import Http404, HttpResponse, JsonResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
@@ -2852,12 +2852,11 @@ class RequestAccessSuccessView(TemplateView):
     template_name = 'production_ledger/request_access_success.html'
 
 
-class AcceptInviteView(FormView):
+class AcceptInviteView(View):
     """
     Accept an invitation to the platform by providing a password.
     Links from email invitations using a unique token.
     """
-    form_class = None
     template_name = 'production_ledger/accept_invite.html'
 
     def get_invitation(self):
@@ -2868,10 +2867,10 @@ class AcceptInviteView(FormView):
         except Invitation.DoesNotExist:
             raise Http404('Invalid or expired invitation token.')
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['invitation'] = self.get_invitation()
-        return context
+    def get(self, request, *args, **kwargs):
+        invitation = self.get_invitation()
+        context = {'invitation': invitation}
+        return render(request, self.template_name, context)
 
     def post(self, request, *args, **kwargs):
         invitation = self.get_invitation()
