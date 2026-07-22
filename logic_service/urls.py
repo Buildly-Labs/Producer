@@ -48,7 +48,10 @@ urlpatterns = [
     # Production Ledger - Main Application
     path('ledger/', include('production_ledger.urls')),
     path('api/', include('production_ledger.api_urls')),
-    
+
+    # Splice - Video Editor
+    path('splice/', include('splice.urls')),
+
     # Landing page (public)
     path('', LandingPageView.as_view(), name='home'),
 ]
