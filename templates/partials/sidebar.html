@@ -65,39 +65,35 @@
         
         <div class="nav-section">
             <div class="nav-section-title">Content</div>
-            
-            <!-- TODO: TranscriptListView not implemented -->
-            <!-- <a href="{% url 'production_ledger:transcript_list' %}"
+
+            <a href="{% url 'production_ledger:transcript_list' %}"
                class="nav-item {% if request.resolver_match.url_name == 'transcript_list' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 <span>Transcripts</span>
-            </a> -->
+            </a>
 
-            <!-- TODO: MediaAssetListView not implemented -->
-            <!-- <a href="{% url 'production_ledger:asset_list' %}"
+            <a href="{% url 'production_ledger:asset_list' %}"
                class="nav-item {% if request.resolver_match.url_name == 'asset_list' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                 </svg>
                 <span>Assets</span>
-            </a> -->
+            </a>
 
-            <!-- TODO: AIToolsView not implemented -->
-            <!-- <a href="{% url 'production_ledger:ai_tools' %}"
+            <a href="{% url 'production_ledger:ai_tools' %}"
                class="nav-item {% if request.resolver_match.url_name == 'ai_tools' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M13 10V3L4 14h7v7l9-11h-7z"/>
                 </svg>
                 <span>AI Tools</span>
-            </a> -->
+            </a>
 
-            <!-- TODO: CommentListView not implemented -->
-            <!-- <a href="{% url 'production_ledger:comment_list' %}"
+            <a href="{% url 'production_ledger:comment_list' %}"
                class="nav-item {% if request.resolver_match.url_name == 'comment_list' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -107,16 +103,15 @@
                     Comments
                     {% if unread_comment_count %}<span class="inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold text-white" style="background:var(--accent-primary);font-size:0.625rem">{{ unread_comment_count }}</span>{% endif %}
                 </span>
-            </a> -->
+            </a>
         </div>
         {% endif %}
         
         {% if not is_guest_user %}
         <div class="nav-section">
             <div class="nav-section-title">System</div>
-            
-            <!-- TODO: UserManagementView not implemented -->
-            <!-- {% if user.is_superuser %}
+
+            {% if user.is_superuser %}
             <a href="{% url 'production_ledger:user_management' %}"
                class="nav-item {% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -125,20 +120,18 @@
                 </svg>
                 <span>Users</span>
             </a>
-            {% endif %} -->
+            {% endif %}
 
-            <!-- TODO: IntegrationsView not implemented -->
-            <!-- <a href="{% url 'production_ledger:integrations' %}"
+            <a href="{% url 'production_ledger:integrations' %}"
                class="nav-item {% if request.resolver_match.url_name == 'integrations' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"/>
                 </svg>
                 <span>Integrations</span>
-            </a> -->
+            </a>
 
-            <!-- TODO: SettingsView not implemented -->
-            <!-- <a href="{% url 'production_ledger:settings' %}"
+            <a href="{% url 'production_ledger:settings' %}"
                class="nav-item {% if request.resolver_match.url_name == 'settings' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -146,7 +139,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                 </svg>
                 <span>Settings</span>
-            </a> -->
+            </a>
         </div>
         {% endif %}
     </nav>
