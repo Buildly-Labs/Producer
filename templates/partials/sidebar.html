@@ -3,16 +3,16 @@
 <aside class="app-sidebar" id="sidebar">
     <!-- Logo -->
     <div class="sidebar-logo">
-        <img src="{% static 'brand/producerforge-logo-dark.png' %}" alt="ProducerForge" class="h-[72px] w-auto logo-dark">
-        <img src="{% static 'brand/producerforge-logo-light.png' %}" alt="ProducerForge" class="h-[72px] w-auto logo-light">
+        <img src="{% static 'brand/producerforge-logo-dark.png' %}" alt="ProducerForge" class="logo-dark">
+        <img src="{% static 'brand/producerforge-logo-light.png' %}" alt="ProducerForge" class="logo-light">
     </div>
     
     <!-- Navigation -->
     <nav class="sidebar-nav" aria-label="Main navigation">
         <div class="nav-section">
             {% if is_guest_user %}
-            <a href="{% url 'production_ledger:guest_portal' %}" 
-               class="nav-item {% if request.resolver_match.url_name == 'guest_portal' %}active{% endif %}">
+            <a href="{% url 'production_ledger:episode_list' %}"
+               class="nav-item {% if request.resolver_match.url_name == 'episode_list' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                           d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
@@ -66,34 +66,38 @@
         <div class="nav-section">
             <div class="nav-section-title">Content</div>
             
-            <a href="{% url 'production_ledger:transcript_list' %}" 
+            <!-- TODO: TranscriptListView not implemented -->
+            <!-- <a href="{% url 'production_ledger:transcript_list' %}"
                class="nav-item {% if request.resolver_match.url_name == 'transcript_list' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                           d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 <span>Transcripts</span>
-            </a>
-            
-            <a href="{% url 'production_ledger:asset_list' %}" 
+            </a> -->
+
+            <!-- TODO: MediaAssetListView not implemented -->
+            <!-- <a href="{% url 'production_ledger:asset_list' %}"
                class="nav-item {% if request.resolver_match.url_name == 'asset_list' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                           d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                 </svg>
                 <span>Assets</span>
-            </a>
-            
-            <a href="{% url 'production_ledger:ai_tools' %}" 
+            </a> -->
+
+            <!-- TODO: AIToolsView not implemented -->
+            <!-- <a href="{% url 'production_ledger:ai_tools' %}"
                class="nav-item {% if request.resolver_match.url_name == 'ai_tools' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                           d="M13 10V3L4 14h7v7l9-11h-7z"/>
                 </svg>
                 <span>AI Tools</span>
-            </a>
+            </a> -->
 
-            <a href="{% url 'production_ledger:comment_list' %}"
+            <!-- TODO: CommentListView not implemented -->
+            <!-- <a href="{% url 'production_ledger:comment_list' %}"
                class="nav-item {% if request.resolver_match.url_name == 'comment_list' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -103,7 +107,7 @@
                     Comments
                     {% if unread_comment_count %}<span class="inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold text-white" style="background:var(--accent-primary);font-size:0.625rem">{{ unread_comment_count }}</span>{% endif %}
                 </span>
-            </a>
+            </a> -->
         </div>
         {% endif %}
         
@@ -111,35 +115,38 @@
         <div class="nav-section">
             <div class="nav-section-title">System</div>
             
-            {% if user.is_superuser %}
-            <a href="{% url 'production_ledger:user_management' %}" 
+            <!-- TODO: UserManagementView not implemented -->
+            <!-- {% if user.is_superuser %}
+            <a href="{% url 'production_ledger:user_management' %}"
                class="nav-item {% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
                 </svg>
                 <span>Users</span>
             </a>
-            {% endif %}
-            
-            <a href="{% url 'production_ledger:integrations' %}" 
+            {% endif %} -->
+
+            <!-- TODO: IntegrationsView not implemented -->
+            <!-- <a href="{% url 'production_ledger:integrations' %}"
                class="nav-item {% if request.resolver_match.url_name == 'integrations' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"/>
                 </svg>
                 <span>Integrations</span>
-            </a>
-            
-            <a href="{% url 'production_ledger:settings' %}" 
+            </a> -->
+
+            <!-- TODO: SettingsView not implemented -->
+            <!-- <a href="{% url 'production_ledger:settings' %}"
                class="nav-item {% if request.resolver_match.url_name == 'settings' %}active{% endif %}">
                 <svg class="nav-item-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                 </svg>
                 <span>Settings</span>
-            </a>
+            </a> -->
         </div>
         {% endif %}
     </nav>
