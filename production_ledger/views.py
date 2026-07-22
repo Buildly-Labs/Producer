@@ -2179,7 +2179,7 @@ def _second_screen_state(episode, overlay_token=None):
     # Safely get logo URL - handle case where logo field might not exist in schema yet
     try:
         show_logo_url = show.logo.url if show.logo else None
-    except (AttributeError, models.FieldError):
+    except AttributeError:
         show_logo_url = None
 
     state = {
@@ -2215,7 +2215,7 @@ def _second_screen_state(episode, overlay_token=None):
         # Safely get sponsor logo URL
         try:
             sponsor_logo_url = sponsor.logo.url if sponsor.logo else None
-        except (AttributeError, models.FieldError):
+        except AttributeError:
             sponsor_logo_url = None
 
         state['sponsor'] = {
