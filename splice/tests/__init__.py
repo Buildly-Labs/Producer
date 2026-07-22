@@ -1,0 +1,3 @@
+"""
+Splice application tests.
+"""
