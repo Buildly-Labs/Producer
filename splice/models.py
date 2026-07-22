@@ -57,6 +57,32 @@ class EditorProject(BaseModel):
     current_revision = models.PositiveIntegerField(default=0)
     last_autosave_at = models.DateTimeField(null=True, blank=True)
 
+    # Local-first mode and rendering
+    processing_mode = models.CharField(
+        choices=[
+            ('local', 'Local Device'),
+            ('hybrid', 'Hybrid (Local + Cloud)'),
+            ('cloud', 'Cloud Only'),
+        ],
+        default='hybrid',
+        max_length=20,
+        help_text='Where media processing happens'
+    )
+    render_location = models.CharField(
+        choices=[
+            ('local_engine', 'Local Engine'),
+            ('cloud_worker', 'Cloud Worker'),
+            ('browser_quick', 'Browser Quick Export'),
+        ],
+        default='local_engine',
+        max_length=20,
+        help_text='Where final render happens'
+    )
+    allow_cloud_upload = models.BooleanField(
+        default=False,
+        help_text='User has approved deliberate cloud uploads'
+    )
+
     class Meta:
         verbose_name = "Editor Project"
         verbose_name_plural = "Editor Projects"
@@ -1032,3 +1058,508 @@ class AIProviderConfiguration(BaseModel):
 
     def __str__(self):
         return f"{self.provider_name}"
+
+
+# =============================================================================
+# LOCAL-FIRST ARCHITECTURE MODELS
+# =============================================================================
+
+class MediaLocation(BaseModel):
+    """
+    Storage location for a media asset.
+    Separates media metadata from its physical/cloud storage location.
+    Never stores absolute local file paths.
+    """
+    asset = models.ForeignKey(
+        MediaAsset,
+        on_delete=models.CASCADE,
+        related_name='locations',
+        help_text="Media asset this location refers to"
+    )
+
+    location_type = models.CharField(
+        choices=[
+            ('local_device', 'Local Device'),
+            ('local_network', 'Local Network'),
+            ('external_drive', 'External Drive'),
+            ('cloud_original', 'Cloud Original'),
+            ('cloud_proxy', 'Cloud Proxy'),
+            ('remote_url', 'Remote URL'),
+            ('generated', 'Generated Media'),
+        ],
+        max_length=30,
+        help_text='Type of location where asset is stored'
+    )
+
+    availability = models.CharField(
+        choices=[
+            ('available', 'Available'),
+            ('offline', 'Offline'),
+            ('needs_relink', 'Needs Relink'),
+            ('proxy_available', 'Proxy Available'),
+            ('cloud_available', 'Cloud Available'),
+            ('processing', 'Processing'),
+            ('invalid', 'Invalid'),
+        ],
+        default='available',
+        max_length=20,
+        help_text='Current availability state'
+    )
+
+    local_engine_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text='Local engine that manages this asset'
+    )
+
+    local_location_id = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text='Opaque local reference (never a path)'
+    )
+
+    cloud_path = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text='S3 key or similar cloud path'
+    )
+
+    remote_url = models.URLField(
+        max_length=2000,
+        null=True,
+        blank=True,
+        help_text='Remote URL if from external source'
+    )
+
+    last_verified = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When availability was last checked'
+    )
+
+    proxy_available = models.BooleanField(
+        default=False,
+        help_text='Whether a proxy exists for this asset'
+    )
+
+    waveform_available = models.BooleanField(
+        default=False,
+        help_text='Whether waveform data exists'
+    )
+
+    thumbnail_available = models.BooleanField(
+        default=False,
+        help_text='Whether thumbnail grid exists'
+    )
+
+    class Meta:
+        verbose_name = "Media Location"
+        verbose_name_plural = "Media Locations"
+        indexes = [
+            models.Index(fields=['asset', 'location_type'], name='media_loc_asset_type'),
+            models.Index(fields=['availability'], name='media_loc_avail'),
+            models.Index(fields=['organization_uuid', 'location_type'], name='media_loc_org_type'),
+        ]
+
+    def __str__(self):
+        return f"{self.asset.filename} @ {self.get_location_type_display()}"
+
+
+class MediaFingerprint(BaseModel):
+    """
+    Fingerprint of a media file for intelligent relinking without re-upload.
+    Supports multi-method matching: size+duration → codec → partial hash → full hash.
+    """
+    asset = models.OneToOneField(
+        MediaAsset,
+        on_delete=models.CASCADE,
+        related_name='fingerprint',
+        help_text="Media asset this fingerprint identifies"
+    )
+
+    fingerprint_version = models.PositiveIntegerField(
+        help_text='Version of fingerprinting algorithm'
+    )
+
+    fingerprint_method = models.CharField(
+        choices=[
+            ('size_duration', 'Size + Duration'),
+            ('size_duration_codec', 'Size + Duration + Codec'),
+            ('partial_hash', 'Partial Hash'),
+            ('full_hash', 'Full Hash'),
+            ('multi_method', 'Multi-Method'),
+        ],
+        max_length=30,
+        help_text='Method used for fingerprinting'
+    )
+
+    file_size = models.BigIntegerField(
+        help_text='File size in bytes'
+    )
+
+    duration_ms = models.PositiveIntegerField(
+        help_text='Duration in milliseconds'
+    )
+
+    codec_metadata = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Codec information (video/audio codecs, frame rate, etc.)'
+    )
+
+    first_chunk_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text='Hash of first 1MB chunk'
+    )
+
+    last_chunk_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text='Hash of last 1MB chunk'
+    )
+
+    partial_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text='Hash of first 10% of file'
+    )
+
+    full_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text='Complete SHA256 hash'
+    )
+
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When fingerprint was verified'
+    )
+
+    class Meta:
+        verbose_name = "Media Fingerprint"
+        verbose_name_plural = "Media Fingerprints"
+        indexes = [
+            models.Index(fields=['full_hash'], name='media_fp_hash'),
+            models.Index(fields=['file_size', 'duration_ms'], name='media_fp_size_dur'),
+        ]
+
+    def __str__(self):
+        return f"Fingerprint: {self.asset.filename}"
+
+
+class LocalEngineInstallation(BaseModel):
+    """
+    Registered local engine instance for an organization.
+    Handles media processing locally without cloud upload.
+    """
+    engine_name = models.CharField(
+        max_length=255,
+        help_text='User-facing name for this installation'
+    )
+
+    engine_uuid = models.UUIDField(
+        unique=True,
+        help_text='Unique identifier for this local engine'
+    )
+
+    registration_key_hash = models.CharField(
+        max_length=64,
+        help_text='Hash of one-time registration key'
+    )
+
+    last_heartbeat = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Last time engine checked in'
+    )
+
+    is_online = models.BooleanField(
+        default=False,
+        help_text='Engine currently connected'
+    )
+
+    version = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text='Engine software version'
+    )
+
+    platform = models.CharField(
+        max_length=50,
+        blank=True,
+        choices=[
+            ('windows', 'Windows'),
+            ('macos', 'macOS'),
+            ('linux', 'Linux'),
+        ],
+        help_text='Operating system'
+    )
+
+    auto_process_jobs = models.BooleanField(
+        default=False,
+        help_text='Automatically start queued jobs'
+    )
+
+    max_concurrent_jobs = models.PositiveIntegerField(
+        default=1,
+        help_text='Maximum concurrent jobs to process'
+    )
+
+    proxy_quality = models.CharField(
+        max_length=50,
+        default='720p',
+        help_text='Proxy quality preset (720p, 1080p, etc.)'
+    )
+
+    class Meta:
+        verbose_name = "Local Engine Installation"
+        verbose_name_plural = "Local Engine Installations"
+        unique_together = [('organization_uuid', 'engine_uuid')]
+        indexes = [
+            models.Index(fields=['organization_uuid', 'is_online'], name='loc_eng_org_on'),
+            models.Index(fields=['last_heartbeat'], name='loc_eng_hb'),
+        ]
+
+    def __str__(self):
+        return f"{self.engine_name} ({self.engine_uuid})"
+
+
+class LocalEngineSession(BaseModel):
+    """
+    Short-lived session between browser and local engine.
+    Authentication via session_token; validated against browser_origin.
+    """
+    local_engine = models.ForeignKey(
+        LocalEngineInstallation,
+        on_delete=models.CASCADE,
+        related_name='sessions',
+        help_text="Local engine this session connects to"
+    )
+
+    session_token = models.CharField(
+        max_length=255,
+        db_index=True,
+        unique=True,
+        help_text='Short-lived authentication token'
+    )
+
+    browser_origin = models.CharField(
+        max_length=255,
+        help_text='Browser origin for validation'
+    )
+
+    expires_at = models.DateTimeField(
+        help_text='When this session expires'
+    )
+
+    last_heartbeat = models.DateTimeField(
+        auto_now=True,
+        help_text='Last activity timestamp'
+    )
+
+    class Meta:
+        verbose_name = "Local Engine Session"
+        verbose_name_plural = "Local Engine Sessions"
+        indexes = [
+            models.Index(fields=['local_engine', 'expires_at'], name='ses_eng_exp'),
+            models.Index(fields=['session_token'], name='ses_token'),
+        ]
+
+    def __str__(self):
+        return f"Session: {self.session_token[:16]}..."
+
+
+class LocalProcessingJob(BaseModel):
+    """
+    Processing job sent to local engine or browser.
+    Job input never contains file paths; local engine resolves UUIDs → paths.
+    """
+    local_engine = models.ForeignKey(
+        LocalEngineInstallation,
+        on_delete=models.CASCADE,
+        related_name='processing_jobs',
+        help_text="Local engine processing this job"
+    )
+
+    editor_project = models.ForeignKey(
+        EditorProject,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='local_processing_jobs',
+        help_text="Editor project this job serves (if applicable)"
+    )
+
+    media_asset = models.ForeignKey(
+        MediaAsset,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='local_processing_jobs',
+        help_text="Media asset this job processes (if applicable)"
+    )
+
+    job_type = models.CharField(
+        choices=[
+            ('probe_media', 'Probe Media File'),
+            ('create_proxy_video', 'Create Video Proxy'),
+            ('create_proxy_audio', 'Create Audio Proxy'),
+            ('generate_waveform', 'Generate Waveform'),
+            ('generate_thumbnails', 'Generate Thumbnails'),
+            ('synchronize_media', 'Synchronize Media'),
+            ('transcribe_asset', 'Transcribe Asset'),
+            ('render_video', 'Render Video'),
+            ('render_audio', 'Render Audio'),
+            ('render_social_clip', 'Render Social Clip'),
+        ],
+        max_length=50,
+        help_text='Type of processing job'
+    )
+
+    status = models.CharField(
+        choices=[
+            ('queued', 'Queued'),
+            ('waiting_for_engine', 'Waiting for Engine'),
+            ('waiting_for_media', 'Waiting for Media'),
+            ('processing', 'Processing'),
+            ('completed', 'Completed'),
+            ('failed', 'Failed'),
+            ('cancelled', 'Cancelled'),
+        ],
+        default='queued',
+        max_length=20,
+        help_text='Current job status'
+    )
+
+    priority = models.PositiveIntegerField(
+        default=5,
+        help_text='Job priority (0=highest, 10=lowest)'
+    )
+
+    progress_percent = models.PositiveIntegerField(
+        default=0,
+        help_text='Processing progress 0-100'
+    )
+
+    input_data = models.JSONField(
+        help_text='Job parameters (no file paths)'
+    )
+
+    output_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Job results'
+    )
+
+    error_code = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        help_text='Error code if job failed'
+    )
+
+    error_message = models.TextField(
+        blank=True,
+        help_text='Human-readable error message'
+    )
+
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When processing started'
+    )
+
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When processing completed'
+    )
+
+    user_confirmed = models.BooleanField(
+        default=False,
+        help_text='User confirmed job execution'
+    )
+
+    auto_start_approved = models.BooleanField(
+        default=False,
+        help_text='User approved auto-start of jobs'
+    )
+
+    class Meta:
+        verbose_name = "Local Processing Job"
+        verbose_name_plural = "Local Processing Jobs"
+        indexes = [
+            models.Index(fields=['local_engine', 'status'], name='job_eng_status'),
+            models.Index(fields=['status', 'priority'], name='job_status_prio'),
+            models.Index(fields=['editor_project'], name='job_project'),
+        ]
+
+    def __str__(self):
+        return f"{self.get_job_type_display()} - {self.get_status_display()}"
+
+
+class RenderPlan(BaseModel):
+    """
+    Path-free rendering blueprint for a project revision.
+    Contains asset UUIDs (not paths); local engine resolves privately.
+    Cloud never knows the mapping between UUIDs and local file paths.
+    """
+    project = models.ForeignKey(
+        EditorProject,
+        on_delete=models.CASCADE,
+        related_name='render_plans',
+        help_text="Editor project this plan renders"
+    )
+
+    revision = models.PositiveIntegerField(
+        help_text='Project revision this plan renders'
+    )
+
+    asset_selections = models.JSONField(
+        help_text='Selected assets as UUIDs (not paths)'
+    )
+
+    operations = models.JSONField(
+        help_text='Serialized edit operations'
+    )
+
+    camera_cuts = models.JSONField(
+        help_text='Camera selection by timeline'
+    )
+
+    sync_offsets = models.JSONField(
+        help_text='Asset sync offsets'
+    )
+
+    output_preset = models.CharField(
+        max_length=100,
+        help_text='Export preset name'
+    )
+
+    canvas_width = models.PositiveIntegerField()
+    canvas_height = models.PositiveIntegerField()
+    frame_rate = models.PositiveIntegerField()
+
+    loudness_preset = models.CharField(
+        max_length=50,
+        help_text='Loudness normalization preset'
+    )
+
+    class Meta:
+        verbose_name = "Render Plan"
+        verbose_name_plural = "Render Plans"
+        indexes = [
+            models.Index(fields=['project', 'revision'], name='plan_proj_rev'),
+        ]
+
+    def __str__(self):
+        return f"Render Plan: {self.project} (rev {self.revision})"
