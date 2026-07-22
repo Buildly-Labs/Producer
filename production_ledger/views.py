@@ -2176,11 +2176,17 @@ def _second_screen_state(episode, overlay_token=None):
     segment = episode.active_segment
     sponsor = segment.sponsor if segment else None
 
+    # Safely get logo URL - handle case where logo field might not exist in schema yet
+    try:
+        show_logo_url = show.logo.url if show.logo else None
+    except (AttributeError, models.FieldError):
+        show_logo_url = None
+
     state = {
         'episode_id': str(episode.pk),
         'episode_title': episode.title,
         'show_name': show.name,
-        'show_logo_url': show.logo.url if show.logo else None,
+        'show_logo_url': show_logo_url,
         'background_url': show.second_screen_background.url if show.second_screen_background else None,
         'brand_primary_color': show.brand_primary_color or None,
         'segment': None,
@@ -2205,12 +2211,19 @@ def _second_screen_state(episode, overlay_token=None):
             )
         else:
             qr_code_url = reverse('production_ledger:sponsor_qr_code', kwargs={'pk': sponsor.pk})
+
+        # Safely get sponsor logo URL
+        try:
+            sponsor_logo_url = sponsor.logo.url if sponsor.logo else None
+        except (AttributeError, models.FieldError):
+            sponsor_logo_url = None
+
         state['sponsor'] = {
             'id': str(sponsor.pk),
             'name': sponsor.name,
             'ad_copy': sponsor.ad_copy,
             'website_url': sponsor.website_url,
-            'logo_url': sponsor.logo.url if sponsor.logo else None,
+            'logo_url': sponsor_logo_url,
             'qr_code_url': qr_code_url,
         }
 

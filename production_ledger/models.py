@@ -92,7 +92,8 @@ class Show(BaseModel):
     brand_primary_color = models.CharField(max_length=7, blank=True, help_text="Hex color code, e.g. #FF5733")
     default_intro_text = models.TextField(blank=True, help_text="Default intro text for episodes")
     default_outro_text = models.TextField(blank=True, help_text="Default outro text for episodes")
-    logo = models.ImageField(upload_to=show_branding_upload_path, null=True, blank=True, help_text="Show logo for the second-screen display and other branding")
+    # TODO: logo field temporarily commented out - migration 0020 pending application
+    # logo = models.ImageField(upload_to=show_branding_upload_path, null=True, blank=True, help_text="Show logo for the second-screen display and other branding")
     second_screen_background = models.ImageField(upload_to=show_branding_upload_path, null=True, blank=True, help_text="Default full-screen background shown between segments on the second screen")
 
     class Meta:
@@ -518,7 +519,8 @@ class Sponsor(BaseModel):
     name = models.CharField(max_length=255)
     website_url = models.URLField(max_length=2000, blank=True, help_text="Sponsor site or ad landing page — encoded into the second-screen QR code")
     ad_copy = models.TextField(blank=True, help_text="Short read-copy or promo message for the segment sponsor card")
-    logo = models.ImageField(upload_to=sponsor_logo_upload_path, null=True, blank=True)
+    # TODO: logo field temporarily commented out - migration pending application
+    # logo = models.ImageField(upload_to=sponsor_logo_upload_path, null=True, blank=True)
     is_active = models.BooleanField(default=True, help_text="Inactive sponsors are hidden from segment pickers but kept for historical episodes")
 
     class Meta:
