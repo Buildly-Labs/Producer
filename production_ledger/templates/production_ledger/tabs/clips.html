@@ -1,13 +1,68 @@
 {% extends "production_ledger/episode_detail.html" %}
 
 {% block tab_content %}
-<div class="space-y-6">
+<div class="space-y-8" x-data="shortsManager('{% url 'production_ledger:api_shorts_identify' episode_id=episode.pk %}', '{% url 'production_ledger:api_shorts_render_all' episode_id=episode.pk %}', '{{ csrf_token }}')">
+
+    {% if running_identify_task %}
+    <!-- ═══════════════════════════════════════════
+         BACKGROUND IDENTIFICATION BANNER
+    ═══════════════════════════════════════════ -->
+    <div id="identify-banner" class="flex items-start gap-3 p-4 bg-indigo-950/40 border border-indigo-700 rounded-xl text-sm">
+        <svg id="identify-banner-icon" class="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <div class="flex-1">
+            <p class="font-semibold text-indigo-300">Clip identification in progress</p>
+            <p class="text-slate-300 text-xs mt-0.5" id="identify-banner-label">{{ running_identify_task.label }}</p>
+            <p class="text-slate-400 text-xs mt-1" id="identify-banner-subtext">AI is analyzing your transcript for engaging moments…</p>
+            <p class="text-indigo-400 text-xs mt-1">You can leave this page — the clips will appear when you return.</p>
+        </div>
+    </div>
+    <script>
+    (function() {
+        const PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+        const STATUS_URL = "{% url 'production_ledger:api_task_status' pk='00000000-0000-0000-0000-000000000000' %}".replace(PLACEHOLDER, '{{ running_identify_task.pk }}');
+
+        async function pollIdentify() {
+            try {
+                const r = await fetch(STATUS_URL, {credentials: 'same-origin'});
+                if (!r.ok) { setTimeout(pollIdentify, 5000); return; }
+                const d = await r.json();
+                const labelEl = document.getElementById('identify-banner-label');
+                const subtextEl = document.getElementById('identify-banner-subtext');
+                const iconEl = document.getElementById('identify-banner-icon');
+                const bannerEl = document.getElementById('identify-banner');
+                if (labelEl && d.label) labelEl.textContent = d.label;
+                if (d.status === 'completed') {
+                    if (subtextEl) subtextEl.textContent = 'Done! Loading your clips…';
+                    if (iconEl) { iconEl.classList.remove('animate-spin', 'text-indigo-400'); iconEl.classList.add('text-green-400'); }
+                    setTimeout(() => window.location.reload(), 800);
+                    return;
+                } else if (d.status === 'failed' || d.status === 'timeout') {
+                    if (subtextEl) subtextEl.textContent = 'Failed: ' + (d.error_message || 'Unknown error. Check with your admin.');
+                    if (iconEl) { iconEl.classList.remove('animate-spin', 'text-indigo-400'); iconEl.classList.add('text-red-400'); }
+                    if (bannerEl) { bannerEl.classList.remove('bg-indigo-950/40', 'border-indigo-700'); bannerEl.classList.add('bg-red-950/40', 'border-red-700'); }
+                    return;
+                }
+                if (!d.is_terminal) setTimeout(pollIdentify, 4000);
+            } catch(e) {
+                setTimeout(pollIdentify, 6000);
+            }
+        }
+        setTimeout(pollIdentify, 4000);
+    })();
+    </script>
+    {% endif %}
+
+    <!-- ═══════════════════════════════════════════
+         SECTION 1 — AI SHORT IDENTIFICATION
+    ═══════════════════════════════════════════ -->
     <div class="flex justify-between items-center">
         <h3 class="text-lg font-medium text-[var(--text-primary)]">Clip Moments</h3>
         <span class="text-sm text-[var(--text-muted)]">{{ clip_moments|length }} clips marked</span>
     </div>
 
-    <!-- Add Clip Form -->
     {% if user_role in 'admin,host,producer,editor' %}
     <div class="bg-[var(--bg-tertiary)] rounded-lg p-4 border border-[var(--border-default)]">
         <h4 class="font-medium text-[var(--text-primary)] mb-3">Mark New Clip</h4>
@@ -40,11 +95,16 @@
                     Add Clip
                 </button>
             </div>
-        </form>
+        </div>
+        <div x-show="identifyError" class="mt-3 rounded-lg bg-red-950/40 border border-red-800 p-3 text-sm text-red-400" x-text="identifyError"></div>
+        <div x-show="identifySuccess" class="mt-3 rounded-lg bg-green-950/40 border border-green-800 p-3 text-sm text-green-400" x-text="identifySuccess"></div>
     </div>
     {% endif %}
 
-    <!-- Clips List -->
+    <!-- ═══════════════════════════════════════════
+         SECTION 2 — VIDEO SHORTS LIST
+    ═══════════════════════════════════════════ -->
+    {% if video_shorts %}
     <div class="space-y-4">
         {% for clip in clip_moments %}
         <div class="bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-lg p-4">
@@ -58,6 +118,15 @@
                             {% else %}bg-[var(--bg-tertiary)] text-[var(--text-secondary)]{% endif %}">
                             {{ clip.get_priority_display }}
                         </span>
+                        <!-- Aspect ratio -->
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-900/40 text-blue-300 ring-1 ring-blue-700">{{ short.aspect_ratio }}</span>
+                        <!-- Status badge (live-updating) -->
+                        <span :class="{
+                            'bg-slate-700 text-slate-300': cardStatus === 'queued',
+                            'bg-yellow-100 text-yellow-700 animate-pulse': cardStatus === 'rendering' || cardStatus === 'uploading',
+                            'bg-green-100 text-green-700': cardStatus === 'ready',
+                            'bg-red-100 text-red-700': cardStatus === 'failed',
+                        }" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize" x-text="cardStatus"></span>
                     </div>
                     <div class="mt-1 text-sm text-[var(--text-muted)]">
                         ⏱️ {{ clip.start_seconds|floatformat:1 }}s → {{ clip.end_seconds|floatformat:1 }}s
@@ -80,6 +149,16 @@
                         <button type="submit" class="text-sm text-[var(--danger)] hover:opacity-80" onclick="return confirm('Delete this clip?')">Delete</button>
                     </form>
                 </div>
+
+                <!-- Render / re-render button -->
+                {% if user_role in 'admin,host,producer' %}
+                <button @click="renderOne()"
+                        x-show="cardStatus === 'queued' || cardStatus === 'failed'"
+                        :disabled="rendering"
+                        class="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+                    <svg class="w-3.5 h-3.5" :class="rendering ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+                    <span x-text="rendering ? 'Rendering\u2026' : 'Render'"></span>
+                </button>
                 {% endif %}
             </div>
         </div>
@@ -90,5 +169,291 @@
         </div>
         {% endfor %}
     </div>
+    {% else %}
+    <div class="text-center py-10 bg-[var(--bg-surface)] rounded-xl border-2 border-dashed border-slate-700">
+        <svg class="mx-auto h-10 w-10 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.069A1 1 0 0121 8.882v6.236a1 1 0 01-1.447.894L15 14M4 6h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z"/></svg>
+        <p class="mt-2 text-sm font-medium text-slate-400">No shorts yet</p>
+        <p class="text-xs text-slate-500 mt-1">Upload a video asset, then click <strong>Identify Shorts</strong> above.</p>
+    </div>
+    {% endif %}
+
+    <!-- ═══════════════════════════════════════════
+         SECTION 3 — CLIP MOMENTS (Manual markers)
+    ═══════════════════════════════════════════ -->
+    <div class="border-t border-slate-700 pt-6 space-y-4">
+        <div class="flex justify-between items-center">
+            <h4 class="font-semibold text-slate-100">Clip Moment Markers</h4>
+            <span class="text-sm text-slate-500">{{ clips|length }} marker{{ clips|length|pluralize }}</span>
+        </div>
+
+        {% if user_role in 'admin,host,producer,editor' %}
+        <div class="bg-[var(--bg-surface)] rounded-lg p-4 border border-slate-700">
+            <h5 class="font-medium text-slate-100 mb-3 text-sm">Mark New Clip</h5>
+            <form method="post" class="space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="manual_add">
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Start (HH:MM:SS)</label>
+                        {{ clip_form.start_time }}
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">End (HH:MM:SS)</label>
+                        {{ clip_form.end_time }}
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Priority</label>
+                        {{ clip_form.priority }}
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Title</label>
+                    {{ clip_form.title }}
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Hook / Notes</label>
+                    {{ clip_form.hook }}
+                </div>
+                <div class="flex justify-end">
+                    <button type="submit" class="px-3 py-1.5 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800">Add Marker</button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+
+        <div class="space-y-3">
+            {% for clip in clips %}
+            <div class="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg p-3">
+                <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-medium text-sm text-slate-100">{{ clip.title|default:"Untitled" }}</span>
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium
+                                {% if clip.priority == 'gold' %}bg-yellow-900/40 text-yellow-300
+                                {% elif clip.priority == 'silver' %}bg-slate-700 text-slate-300
+                                {% else %}bg-orange-900/40 text-orange-300{% endif %}">
+                                {{ clip.get_priority_display }}
+                            </span>
+                        </div>
+                        <div class="text-xs text-slate-500 mt-0.5">⏱ {{ clip.start_formatted }} → {{ clip.end_formatted }}</div>
+                        {% if clip.hook %}<p class="text-xs text-slate-400 mt-1 italic">{{ clip.hook }}</p>{% endif %}
+                    </div>
+                    {% if user_role in 'admin,host,producer,editor' %}
+                    <div class="ml-3 flex gap-2">
+                        <a href="{% url 'production_ledger:clip_edit' clip.pk %}" class="text-xs text-blue-600 hover:text-blue-800">Edit</a>
+                        <form method="post" action="{% url 'production_ledger:clip_delete' clip.pk %}" class="inline">
+                            {% csrf_token %}
+                            <button type="submit" class="text-xs text-red-500 hover:text-red-700" onclick="return confirm('Delete this clip marker?')">Delete</button>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% empty %}
+            <p class="text-center py-6 text-sm text-slate-500">No clip markers yet. Use AI Identify above or add manually.</p>
+            {% endfor %}
+        </div>
+    </div>
 </div>
+
+<script>
+function shortsManager(identifyUrl, renderAllUrl, csrfToken) {
+    return {
+        identifyUrl,
+        renderAllUrl,
+        csrfToken,
+        identifyAspect: '9:16',
+        identifyCount: 5,
+        identifying: false,
+        identifyLabel: 'Identify Shorts',
+        identifyError: '',
+        identifySuccess: '',
+        renderingAll: false,
+        renderAllError: '',
+        _identifyPollTimer: null,
+
+        async identifyShorts() {
+            this.identifying = true;
+            this.identifyLabel = 'Starting…';
+            this.identifyError = '';
+            this.identifySuccess = '';
+
+            try {
+                const r = await fetch(this.identifyUrl, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken},
+                    body: JSON.stringify({aspect_ratio: this.identifyAspect, max_clips: this.identifyCount}),
+                });
+                let d;
+                try {
+                    d = await r.json();
+                } catch (_) {
+                    const text = await r.text();
+                    throw new Error(text.trim().slice(0, 500) || 'Identification failed with a non-JSON response.');
+                }
+                if (r.status === 202) {
+                    // Background job started — poll until complete
+                    const taskId = d.task_id;
+                    this.identifyLabel = 'Analyzing transcript…';
+                    if (taskId) {
+                        this._pollIdentifyTask(taskId);
+                    } else {
+                        // No task_id (shouldn't happen) — keep spinner, let the
+                        // server-rendered banner handle it on next page load
+                        this.identifyLabel = 'Running in background…';
+                    }
+                    return; // keep identifying=true / button spinning
+                }
+                if (!r.ok) throw new Error(d.error || 'Identification failed.');
+                this.identifySuccess = `AI identified ${d.count} short${d.count !== 1 ? 's' : ''}! Reloading…`;
+                setTimeout(() => location.reload(), 1800);
+            } catch (e) {
+                this.identifyError = e.message;
+                this.identifying = false;
+                this.identifyLabel = 'Identify Shorts';
+            }
+        },
+
+        async _pollIdentifyTask(taskId) {
+            const PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+            const base = "{% url 'production_ledger:api_task_status' pk='00000000-0000-0000-0000-000000000000' %}";
+            const url = base.replace(PLACEHOLDER, taskId);
+            const labels = ['Analyzing transcript…', 'Finding key moments…', 'Writing captions…', 'Almost done…'];
+            let labelIdx = 0;
+            const self = this;
+
+            const advance = () => {
+                labelIdx = Math.min(labelIdx + 1, labels.length - 1);
+                self.identifyLabel = labels[labelIdx];
+            };
+            const hintTimer = setInterval(advance, 15000);
+
+            const poll = async () => {
+                try {
+                    const r = await fetch(url, {credentials: 'same-origin'});
+                    if (!r.ok) { self._identifyPollTimer = setTimeout(poll, 5000); return; }
+                    const d = await r.json();
+                    if (d.status === 'completed') {
+                        clearInterval(hintTimer);
+                        self.identifySuccess = 'Clips identified! Reloading…';
+                        self.identifying = false;
+                        self.identifyLabel = 'Identify Shorts';
+                        setTimeout(() => location.reload(), 800);
+                    } else if (d.status === 'failed' || d.status === 'timeout') {
+                        clearInterval(hintTimer);
+                        self.identifyError = d.error_message || 'Identification failed. Please try again.';
+                        self.identifying = false;
+                        self.identifyLabel = 'Identify Shorts';
+                    } else {
+                        self._identifyPollTimer = setTimeout(poll, 4000);
+                    }
+                } catch(e) {
+                    self._identifyPollTimer = setTimeout(poll, 6000);
+                }
+            };
+            poll();
+        },
+
+        async renderAll() {
+            if (!confirm('Render all queued shorts? This may take several minutes.')) return;
+            this.renderingAll = true;
+            this.renderAllError = '';
+            try {
+                const r = await fetch(this.renderAllUrl, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken},
+                    body: '{}',
+                });
+                let d;
+                try {
+                    d = await r.json();
+                } catch (_) {
+                    const text = await r.text();
+                    throw new Error(text.trim().slice(0, 500) || 'Render all failed with a non-JSON response.');
+                }
+                if (!r.ok) throw new Error(d.error || 'Render all failed.');
+                const failed = (d.results || []).filter(x => x.status === 'failed');
+                if (failed.length) {
+                    this.renderAllError = `${failed.length} short(s) failed to render. Check individual errors.`;
+                }
+                setTimeout(() => location.reload(), 800);
+            } catch (e) {
+                this.renderAllError = e.message;
+            } finally {
+                this.renderingAll = false;
+            }
+        },
+    };
+}
+
+function shortCard(shortId, initialStatus, initialUrl, renderUrl, csrfToken) {
+    return {
+        shortId,
+        renderUrl,
+        csrfToken,
+        cardStatus: initialStatus,
+        cardUrl: initialUrl,
+        rendering: false,
+        renderError: '',
+        linkCopied: false,
+
+        async renderOne() {
+            this.rendering = true;
+            this.renderError = '';
+            this.cardStatus = 'rendering';
+            try {
+                const r = await fetch(this.renderUrl, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken},
+                    body: '{}',
+                });
+                let d;
+                try {
+                    d = await r.json();
+                } catch (_) {
+                    const text = await r.text();
+                    throw new Error(text.trim().slice(0, 500) || 'Render failed with a non-JSON response.');
+                }
+                if (!r.ok) throw new Error(d.error || 'Render failed.');
+                this.cardStatus = d.status;
+                this.cardUrl = d.public_url || '';
+            } catch (e) {
+                this.renderError = e.message;
+                this.cardStatus = 'failed';
+            } finally {
+                this.rendering = false;
+            }
+        },
+
+        copyLink() {
+            if (this.cardUrl) {
+                navigator.clipboard.writeText(this.cardUrl).then(() => {
+                    this.linkCopied = true;
+                    setTimeout(() => { this.linkCopied = false; }, 2000);
+                });
+            }
+        },
+
+        copyCaptionFor(platform, btn) {
+            const card = btn.closest('.rounded-lg.border');
+            const selectors = {
+                tiktok: '.caption-tiktok',
+                youtube: '.caption-youtube',
+                instagram: '.caption-instagram',
+                linkedin: '.caption-linkedin',
+            };
+            const el = card ? card.querySelector(selectors[platform]) : null;
+            const text = el ? el.textContent.trim() : '';
+            if (text) {
+                navigator.clipboard.writeText(text).then(() => {
+                    const orig = btn.textContent;
+                    btn.textContent = 'Copied!';
+                    setTimeout(() => { btn.textContent = orig; }, 1800);
+                });
+            }
+        },
+    };
+}
+</script>
+
 {% endblock %}

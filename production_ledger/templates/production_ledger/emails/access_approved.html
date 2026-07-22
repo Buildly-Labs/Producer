@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Your access request has been approved</title></head>
+<body style="font-family: sans-serif; color: #1a1a1a; max-width: 560px; margin: 0 auto; padding: 24px;">
+  <h2 style="color: #16a34a;">Your access request has been approved!</h2>
+  <p>Hi{% if invitation.name %} {{ invitation.name }}{% endif %},</p>
+  <p>Great news — your request to access <strong>ProducerForge</strong> has been approved. Click below to set your password and get started.</p>
+  <p style="margin: 32px 0;">
+    <a href="{{ invite_url }}"
+       style="background:#16a34a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">
+      Set up your account
+    </a>
+  </p>
+  <p style="color:#6b7280;font-size:13px;">
+    Or copy this link into your browser:<br>
+    <a href="{{ invite_url }}" style="color:#16a34a;">{{ invite_url }}</a>
+  </p>
+  <p style="color:#6b7280;font-size:12px;border-top:1px solid #e5e7eb;padding-top:16px;margin-top:32px;">
+    This email was sent to {{ invitation.email }}.
+  </p>
+</body>
+</html>

@@ -3,7 +3,10 @@ import os
 import sys
 
 if __name__ == "__main__":
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "logic_service.settings.dev")
+    if "DJANGO_SETTINGS_MODULE" not in os.environ:
+        running_in_docker = os.getenv("RUNNING_IN_DOCKER", "").lower() in ("1", "true", "yes")
+        default_settings = "logic_service.settings.docker" if running_in_docker else "logic_service.settings.dev"
+        os.environ.setdefault("DJANGO_SETTINGS_MODULE", default_settings)
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

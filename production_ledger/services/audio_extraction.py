@@ -1,0 +1,400 @@
+"""
+Audio extraction service — strips audio from a video file and optionally
+inserts an intro announcement at a configurable position.
+
+All processing is done in a temp directory using ffmpeg (must be on PATH).
+The result is an MP3 suitable for podcast RSS distribution.
+
+Intro announcement flow (when enabled):
+  1. A pre-generated TTS intro MP3 can be passed in directly (from the
+     browser preview workflow), or one will be generated on the fly.
+  2. The intro is inserted at *insert_at_seconds* within the extracted audio:
+     - 0 = prepend before all episode audio (default)
+     - N = split episode at N seconds, insert intro between the two halves
+
+TTS generation (when no pre-made intro is supplied):
+  - Primary:  OpenAI TTS API (tts-1-hd, voice configurable)
+  - Fallback: macOS 'say' or Linux espeak-ng
+
+Usage::
+
+    from .audio_extraction import extract_audio_from_video
+
+    # Basic: auto-generate intro with OpenAI TTS, inserted at start
+    audio_path, duration = extract_audio_from_video(
+        video_url="https://cdn.example.com/video.mp4",
+        episode_title="Episode 12: Building in Public",
+        show_name="The Forge Podcast",
+        add_intro=True,
+    )
+
+    # Advanced: use a pre-previewed intro, insert 30 seconds into episode
+    audio_path, duration = extract_audio_from_video(
+        video_url="https://cdn.example.com/video.mp4",
+        episode_title="Episode 12: Building in Public",
+        show_name="The Forge Podcast",
+        add_intro=True,
+        intro_audio_path=Path("/tmp/forge_tts_abc.mp3"),
+        insert_at_seconds=30,
+    )
+    # audio_path is a pathlib.Path to a temp .mp3 — caller is responsible for cleanup
+"""
+
+import logging
+import os
+import platform
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+from urllib.request import urlretrieve
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def extract_audio_from_video(
+    video_url: str,
+    episode_title: str,
+    show_name: str,
+    add_intro: bool = False,
+    intro_text: str | None = None,
+    intro_audio_path: Path | None = None,
+    insert_at_seconds: float = 0.0,
+    intro_voice: str = "onyx",
+    intro_model: str = "tts-1-hd",
+    bitrate: str = "192k",
+) -> tuple[Path, int]:
+    """
+    Download *video_url*, extract audio as MP3, optionally insert an intro.
+
+    Args:
+        video_url:          Direct URL to the video file.
+        episode_title:      Used to auto-generate intro text if needed.
+        show_name:          Used to auto-generate intro text if needed.
+        add_intro:          Whether to include an intro announcement.
+        intro_text:         Custom intro text (auto-generated if None).
+        intro_audio_path:   Pre-generated intro MP3 path (from browser preview).
+                            If supplied, skip TTS generation.
+        insert_at_seconds:  Where to insert the intro inside the episode audio.
+                            0 = prepend at start (default). N = split at Ns.
+        intro_voice:        OpenAI TTS voice (alloy/echo/fable/onyx/nova/shimmer).
+        intro_model:        OpenAI TTS model (tts-1 or tts-1-hd).
+        bitrate:            Output MP3 bitrate (128k / 192k / 320k).
+
+    Returns:
+        (output_path, duration_seconds) — caller must delete the temp dir.
+
+    Raises:
+        RuntimeError if ffmpeg is missing or the extraction fails.
+    """
+    _require_ffmpeg()
+
+    work_dir = Path(tempfile.mkdtemp(prefix="forge_audio_"))
+    try:
+        video_path = _download_video(video_url, work_dir)
+        raw_audio = work_dir / "raw_audio.mp3"
+        _extract_audio(video_path, raw_audio, bitrate)
+
+        if add_intro:
+            if intro_audio_path and intro_audio_path.exists():
+                # Use pre-generated TTS from browser preview
+                intro_mp3 = intro_audio_path
+            else:
+                # Generate TTS (OpenAI first, system fallback)
+                text = intro_text or _default_intro_text(episode_title, show_name)
+                intro_mp3 = _build_intro(
+                    text, work_dir,
+                    voice=intro_voice, model=intro_model,
+                )
+
+            final_mp3 = work_dir / "final.mp3"
+            if insert_at_seconds > 0:
+                _insert_intro_at_offset(
+                    raw_audio, intro_mp3, final_mp3,
+                    insert_at_seconds, bitrate,
+                )
+            else:
+                _concat_audio([intro_mp3, raw_audio], final_mp3, bitrate)
+        else:
+            final_mp3 = raw_audio
+
+        duration = _probe_duration(final_mp3)
+        logger.info(
+            "Audio extraction complete: %s (%.0fs, %s)",
+            final_mp3, duration, bitrate,
+        )
+        return final_mp3, int(duration)
+
+    except Exception:
+        # Clean up on error
+        shutil.rmtree(work_dir, ignore_errors=True)
+        raise
+
+
+def cleanup_work_dir(audio_path: Path) -> None:
+    """Remove the temp directory that contains *audio_path*."""
+    shutil.rmtree(audio_path.parent, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _require_ffmpeg():
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError(
+            "ffmpeg is not installed or not on PATH. "
+            "Install it with: apt-get install ffmpeg  (or brew install ffmpeg)"
+        )
+
+
+_NON_DOWNLOADABLE_PATTERNS = (
+    "youtube.com/", "youtu.be/",
+    "vimeo.com/",
+)
+
+def is_directly_downloadable(url: str) -> bool:
+    """Return True if *url* is a direct media file URL that can be downloaded."""
+    url_lower = url.lower()
+    return not any(p in url_lower for p in _NON_DOWNLOADABLE_PATTERNS)
+
+
+def _download_video(url: str, work_dir: Path) -> Path:
+    """Download video to work_dir, returning the local path."""
+    import urllib.request  # noqa: PLC0415
+
+    if not is_directly_downloadable(url):
+        raise RuntimeError(
+            f"Cannot download from {url!r} — YouTube and Vimeo links are not "
+            "directly downloadable. Upload the video file to DO Spaces first."
+        )
+
+    ext = Path(url.split("?")[0]).suffix or ".mp4"
+    dest = work_dir / f"video{ext}"
+    logger.info("Downloading video from %s …", url)
+
+    # Download with a 30-minute timeout so the thread can't hang forever.
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=1800) as resp, open(dest, "wb") as f:  # noqa: S310
+        import shutil as _shutil  # noqa: PLC0415
+        _shutil.copyfileobj(resp, f)
+    return dest
+
+
+def _extract_audio(video_path: Path, out_mp3: Path, bitrate: str) -> None:
+    """Strip audio track from video and encode as MP3."""
+    _run_ffmpeg([
+        "-i", str(video_path),
+        "-vn",                   # no video
+        "-ar", "44100",          # 44.1 kHz
+        "-ac", "2",              # stereo
+        "-b:a", bitrate,
+        "-y",
+        str(out_mp3),
+    ], stage="extract")
+
+
+def _insert_intro_at_offset(
+    episode_mp3: Path,
+    intro_mp3: Path,
+    out_mp3: Path,
+    offset_seconds: float,
+    bitrate: str,
+) -> None:
+    """
+    Insert *intro_mp3* at *offset_seconds* inside *episode_mp3*.
+
+    Produces:  episode[0..offset]  +  intro  +  episode[offset..end]
+    """
+    parent = out_mp3.parent
+    before = parent / "seg_before.mp3"
+    after  = parent / "seg_after.mp3"
+
+    # Trim before segment
+    _run_ffmpeg([
+        "-i", str(episode_mp3),
+        "-t", str(offset_seconds),
+        "-vn", "-ar", "44100", "-ac", "2", "-b:a", bitrate, "-y",
+        str(before),
+    ], stage="split_before")
+
+    # Trim after segment
+    _run_ffmpeg([
+        "-i", str(episode_mp3),
+        "-ss", str(offset_seconds),
+        "-vn", "-ar", "44100", "-ac", "2", "-b:a", bitrate, "-y",
+        str(after),
+    ], stage="split_after")
+
+    _concat_audio([before, intro_mp3, after], out_mp3, bitrate)
+
+
+def _build_intro(text: str, work_dir: Path, voice: str = "onyx", model: str = "tts-1-hd") -> Path:
+    """
+    Build a short intro MP3: spoken announcement mixed over a music bed.
+
+    Primary TTS: OpenAI API (uses .tts module).
+    Fallback:    espeak-ng / macOS 'say'.
+    Music bed:   15s sine wave generated by ffmpeg.
+    """
+    music_path = work_dir / "music_bed.mp3"
+    voice_path = work_dir / "voice.mp3"
+    intro_path = work_dir / "intro.mp3"
+
+    # ── Music bed: 15s generated sine wave ──────────────────────────────
+    _run_ffmpeg([
+        "-f", "lavfi",
+        "-i", "sine=frequency=220:duration=15",
+        "-af", "afade=t=in:st=0:d=1,afade=t=out:st=13:d=2,volume=0.25",
+        "-ar", "44100", "-ac", "2",
+        "-b:a", "128k", "-y",
+        str(music_path),
+    ], stage="music_bed")
+
+    # ── Voice: OpenAI TTS (preferred) → system TTS (fallback) ─────────────
+    voice_ok = _generate_tts(text, voice_path, work_dir, tts_voice=voice, tts_model=model)
+
+    if voice_ok:
+        # Mix voice (at full volume) over the music bed
+        _run_ffmpeg([
+            "-i", str(music_path),
+            "-i", str(voice_path),
+            "-filter_complex",
+            "[0:a]volume=0.3[bed];[1:a]volume=1.0[speech];[bed][speech]amix=inputs=2:duration=longest[out]",
+            "-map", "[out]",
+            "-ar", "44100", "-ac", "2",
+            "-b:a", "128k", "-y",
+            str(intro_path),
+        ], stage="intro_mix")
+    else:
+        # No TTS — use the music bed alone with a 2-second silence pad at end
+        _run_ffmpeg([
+            "-i", str(music_path),
+            "-af", "apad=pad_dur=2",
+            "-ar", "44100", "-ac", "2",
+            "-b:a", "128k", "-y",
+            str(intro_path),
+        ], stage="intro_pad")
+
+    return intro_path
+
+
+def _generate_tts(
+    text: str,
+    out_mp3: Path,
+    work_dir: Path,
+    tts_voice: str = "onyx",
+    tts_model: str = "tts-1-hd",
+) -> bool:
+    """
+    Attempt TTS generation.  Order:
+    1. OpenAI TTS API (requires OPENAI_API_KEY in settings)
+    2. Platform-native TTS (macOS 'say' or Linux espeak-ng)
+
+    Returns True if voice MP3 was generated successfully.
+    """
+    # Try OpenAI TTS first
+    try:
+        from .tts import _openai_tts  # noqa: PLC0415
+        tts_path, _ = _openai_tts(text, tts_voice, tts_model, speed=1.0)
+        import shutil as _shutil  # noqa: PLC0415
+        _shutil.move(str(tts_path), str(out_mp3))
+        logger.info("OpenAI TTS voice generated: %s", out_mp3)
+        return True
+    except Exception as exc:
+        logger.warning("OpenAI TTS unavailable (%s), trying system TTS", exc)
+
+    safe_text = text.replace('"', "'")
+
+    if platform.system() == "Darwin":
+        # macOS 'say' → AIFF → convert to MP3
+        aiff_path = work_dir / "voice.aiff"
+        result = subprocess.run(
+            ["say", "-o", str(aiff_path), safe_text],
+            capture_output=True, timeout=30,
+        )
+        if result.returncode == 0 and aiff_path.exists():
+            _run_ffmpeg([
+                "-i", str(aiff_path),
+                "-b:a", "128k", "-y",
+                str(out_mp3),
+            ], stage="tts_convert")
+            return True
+    else:
+        # Linux: try espeak-ng
+        espeak = shutil.which("espeak-ng") or shutil.which("espeak")
+        if espeak:
+            wav_path = work_dir / "voice.wav"
+            result = subprocess.run(
+                [espeak, "-w", str(wav_path), safe_text],
+                capture_output=True, timeout=30,
+            )
+            if result.returncode == 0 and wav_path.exists():
+                _run_ffmpeg([
+                    "-i", str(wav_path),
+                    "-b:a", "128k", "-y",
+                    str(out_mp3),
+                ], stage="tts_convert")
+                return True
+
+    logger.warning("TTS unavailable — intro will use music bed only")
+    return False
+
+
+def _concat_audio(parts: list[Path], out_mp3: Path, bitrate: str) -> None:
+    """Concatenate a list of MP3 files into one."""
+    # Write a concat list file
+    list_file = out_mp3.parent / "concat_list.txt"
+    list_file.write_text(
+        "\n".join(f"file '{p}'" for p in parts),
+        encoding="utf-8",
+    )
+    _run_ffmpeg([
+        "-f", "concat",
+        "-safe", "0",
+        "-i", str(list_file),
+        "-vn",
+        "-ar", "44100", "-ac", "2",
+        "-b:a", bitrate,
+        "-y",
+        str(out_mp3),
+    ], stage="concat")
+
+
+def _probe_duration(mp3_path: Path) -> float:
+    """Return the duration in seconds using ffprobe."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(mp3_path),
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(result.stdout.strip() or "0")
+    except Exception:
+        return 0.0
+
+
+def _run_ffmpeg(args: list[str], stage: str = "") -> None:
+    """Run ffmpeg with the given argument list. Raises RuntimeError on failure."""
+    cmd = ["ffmpeg", "-loglevel", "error"] + args
+    logger.debug("ffmpeg [%s]: %s", stage, " ".join(cmd))
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg failed at stage '{stage}': {result.stderr[-500:]}"
+        )
+
+
+def _default_intro_text(episode_title: str, show_name: str) -> str:
+    return (
+        f"Welcome to {show_name}. "
+        f"This episode is: {episode_title}. "
+        "Let's get started."
+    )

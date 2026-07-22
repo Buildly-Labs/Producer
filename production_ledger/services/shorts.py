@@ -1,0 +1,672 @@
+"""
+AI Shorts Generation Service.
+
+Workflow:
+  1. AI analyses the episode Transcript to identify high-value clip moments
+     (hooks, quotable moments, debate highlights).
+  2. Clip moments are stored as ClipMoment + VideoShort (status=QUEUED).
+  3. A render step uses ffmpeg to cut the clip from the source video and
+     re-encode it for the target aspect ratio (vertical 9:16, square 1:1,
+     or horizontal 16:9).  A text overlay (hook + CTA) is burned in if fonts
+     are available; otherwise a clean crop is used.
+  4. The rendered clip is uploaded to DO Spaces; VideoShort.public_url is set
+     and status advances to READY.
+  5. Shareable CDN links + per-platform captions are returned per short.
+
+Environment variables:
+  AI_PROVIDER              - 'openai' | 'digitalocean' (default: digitalocean when
+                             DIGITALOCEAN_LLM_API_KEY is set, else mock)
+  DIGITALOCEAN_LLM_API_KEY - DigitalOcean GenAI API key (preferred)
+  DIGITALOCEAN_LLM_ENDPOINT - DigitalOcean GenAI base URL
+  AI_API_KEY               - OpenAI key (used when AI_PROVIDER=openai)
+  AI_MODEL                 - Chat model for clip identification (default: gpt-4o)
+  SHORTS_MAX_CLIPS         - Max clips to identify per episode (default: 5)
+  SHORTS_MIN_DURATION      - Minimum clip duration in seconds (default: 20)
+  SHORTS_MAX_DURATION      - Maximum clip duration in seconds (default: 90)
+  SHORTS_CTA_URL           - Website CTA shown in video overlay (default: firstcityfoundry.com)
+  SHORTS_YOUTUBE_HANDLE    - YouTube channel handle for CTAs (default: @FirstCityFoundry)
+
+ffmpeg must be available on PATH for rendering.
+"""
+import json
+import logging
+import os
+import subprocess
+import tempfile
+from typing import Optional
+
+from django.db import models
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
+
+SHORTS_MAX_CLIPS = int(os.environ.get("SHORTS_MAX_CLIPS", "5"))
+SHORTS_MIN_DURATION = int(os.environ.get("SHORTS_MIN_DURATION", "20"))
+SHORTS_MAX_DURATION = int(os.environ.get("SHORTS_MAX_DURATION", "90"))
+SHORTS_CTA_URL = os.environ.get("SHORTS_CTA_URL", "firstcityfoundry.com")
+SHORTS_YOUTUBE_HANDLE = os.environ.get("SHORTS_YOUTUBE_HANDLE", "@FirstCityFoundry")
+
+
+# ---------------------------------------------------------------------------
+# AI clip identification
+# ---------------------------------------------------------------------------
+
+_IDENTIFY_PROMPT = """\
+You are a social media strategist and podcast producer specialising in short-form
+video content that drives audience growth. Your goal is to turn long-form podcast
+or interview content into viral short clips for TikTok, YouTube Shorts, and
+Instagram Reels that compel viewers to visit {cta_url} and watch the full episode
+on the {youtube_handle} YouTube channel.
+
+Given the transcript segments below, identify the {max_clips} most compelling
+moments that would make high-performing short-form clips.
+
+Each clip must:
+- Be between {min_dur}-{max_dur} seconds long.
+- Start and end at natural speech boundaries.
+- Open with a pattern interrupt or strong hook in the first 3 seconds.
+- Be self-contained and emotionally resonant without the full episode context.
+- Drive curiosity so viewers seek out the full episode.
+
+For every clip, write platform-specific captions:
+- TikTok: conversational, energetic, 150-220 chars, uses relevant trending hashtags, ends with a curiosity hook or question.
+- YouTube Shorts: 200-300 chars, includes the show/brand context, CTA to watch full episode at {youtube_handle}, uses relevant hashtags.
+- Instagram Reels: polished, 200-250 chars, storytelling tone, IG-relevant hashtags, emoji-accented, CTA to link in bio.
+- LinkedIn: professional insight framing, 250-350 chars, why this matters for business/creators, minimal hashtags (3 max).
+
+All captions should eventually funnel viewers to {cta_url} and the full YouTube content.
+
+Return ONLY a JSON array (no extra text) with exactly this schema:
+[
+  {{
+    "start_seconds": 42.5,
+    "end_seconds": 87.0,
+    "title": "Short punchy title (max 60 chars)",
+    "hook": "Pattern-interrupt opening line (max 100 chars) - first words spoken or supered on screen",
+    "cta_overlay": "Bottom-of-screen CTA text (max 50 chars), e.g. 'Watch full episode → {cta_url}'",
+    "caption": "Primary caption (TikTok default, max 220 chars)",
+    "platform_captions": {{
+      "tiktok": "TikTok caption (max 220 chars, energetic, hashtags)",
+      "youtube_shorts": "YouTube Shorts caption (max 300 chars, CTA to {youtube_handle})",
+      "instagram": "Instagram Reels caption (max 250 chars, storytelling, emoji)",
+      "linkedin": "LinkedIn caption (max 350 chars, professional insight)"
+    }},
+    "hashtags": ["#hashtag1", "#hashtag2"],
+    "priority": "gold|silver|bronze"
+  }},
+  ...
+]
+
+TRANSCRIPT SEGMENTS:
+{segments}
+"""
+
+
+class _MockClipIdentifier:
+    def identify(self, transcript, max_clips: int, min_dur: int, max_dur: int) -> list[dict]:
+        """Return deterministic mock clips for development."""
+        return [
+            {
+                "start_seconds": 30.0,
+                "end_seconds": 60.0,
+                "title": "The moment everything changed",
+                "hook": "Nobody expected this answer.",
+                "cta_overlay": f"Watch full episode → {SHORTS_CTA_URL}",
+                "caption": "Nobody expected this answer about AI - and it changes everything. 🔥 Watch the full breakdown.",
+                "platform_captions": {
+                    "tiktok": "Nobody expected THIS answer about AI 😳 Drop a 🔥 if this hit different. Full episode link in bio! #AIpodcast #podcast #tech #mindblown",
+                    "youtube_shorts": f"Nobody expected this answer about AI. Watch the full deep-dive at {SHORTS_YOUTUBE_HANDLE} - link in description! #Shorts #AIPodcast #TechTalk",
+                    "instagram": f"That moment when the answer you didn't expect changes everything… 🤯✨ Full episode on YouTube - link in bio. Follow for more insights from {SHORTS_CTA_URL} #Podcast #AIInsights #TechCreators",
+                    "linkedin": f"A surprising insight from our latest podcast episode that every business leader should hear. Watch the full episode at {SHORTS_CTA_URL} and subscribe to {SHORTS_YOUTUBE_HANDLE} for weekly content. #Leadership #AI #Podcast",
+                },
+                "hashtags": ["#AI", "#podcast", "#tech"],
+                "priority": "gold",
+            },
+            {
+                "start_seconds": 90.0,
+                "end_seconds": 125.0,
+                "title": "What experts actually think",
+                "hook": "The real story behind AI in 2026.",
+                "cta_overlay": f"Full episode → {SHORTS_CTA_URL}",
+                "caption": "What experts actually think about AI - and why it matters for you. Full breakdown in the episode.",
+                "platform_captions": {
+                    "tiktok": "What experts ACTUALLY think about AI in 2026 👀 This is the take nobody's saying out loud. Link in bio for full episode! #AI #FutureTech #podcast",
+                    "youtube_shorts": f"The expert opinion on AI that most people miss. Subscribe to {SHORTS_YOUTUBE_HANDLE} for the full episode and more. #Shorts #AI #PodcastClip",
+                    "instagram": f"Real talk from real experts - this is what AI in 2026 actually looks like 🎙️ Catch the full conversation on YouTube. Follow + link in bio 👉 {SHORTS_CTA_URL} #AITrends #FutureOfWork",
+                    "linkedin": f"Cutting through the noise on AI: this expert perspective reframes the conversation entirely. Full episode at {SHORTS_CTA_URL} #AI #Innovation #Leadership",
+                },
+                "hashtags": ["#AI", "#future", "#tech"],
+                "priority": "silver",
+            },
+        ][:max_clips]
+
+
+class _OpenAIClipIdentifier:
+    def __init__(self, api_key: str, model: str, base_url: str = None):
+        try:
+            import openai  # noqa: PLC0415
+        except ImportError as exc:
+            raise RuntimeError("openai package is required. Run: pip install openai") from exc
+        kwargs = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = openai.OpenAI(**kwargs)
+        self.model = model
+
+    def identify(self, transcript, max_clips: int, min_dur: int, max_dur: int) -> list[dict]:
+        # Build a condensed segment list for the prompt
+        normalized = transcript.normalized_json or {}
+        segs = normalized.get("segments", [])
+        if not segs:
+            # Fall back to plain text split into rough chunks
+            words = transcript.raw_text.split()
+            chunk_size = max(1, len(words) // 20)
+            segs = [
+                {"start": i * 30, "end": (i + 1) * 30, "text": " ".join(words[i * chunk_size:(i + 1) * chunk_size])}
+                for i in range(min(20, len(words) // chunk_size + 1))
+            ]
+
+        segment_text = "\n".join(
+            f"[{s.get('start', 0):.1f}s → {s.get('end', 0):.1f}s] {s.get('text', '')}"
+            for s in segs
+        )
+
+        prompt = _IDENTIFY_PROMPT.format(
+            max_clips=max_clips,
+            min_dur=min_dur,
+            max_dur=max_dur,
+            segments=segment_text,
+            cta_url=SHORTS_CTA_URL,
+            youtube_handle=SHORTS_YOUTUBE_HANDLE,
+        )
+
+        response = self._client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content
+        try:
+            parsed = json.loads(raw)
+            # Support both {"clips": [...]} and bare [...]
+            if isinstance(parsed, dict):
+                clips = parsed.get("clips") or parsed.get("moments") or list(parsed.values())[0]
+            else:
+                clips = parsed
+            return clips[:max_clips]
+        except (json.JSONDecodeError, KeyError, IndexError) as exc:
+            raise RuntimeError(f"AI returned invalid JSON for clip identification: {exc}\nRaw: {raw}") from exc
+
+
+def _get_identifier():
+    explicit = os.environ.get("AI_PROVIDER", "").lower()
+    do_key = os.environ.get("DIGITALOCEAN_LLM_API_KEY", "")
+
+    if explicit == "openai":
+        return _OpenAIClipIdentifier(
+            api_key=os.environ["AI_API_KEY"],
+            model=os.environ.get("AI_MODEL", "gpt-4o"),
+        )
+
+    if explicit == "digitalocean" or (not explicit and do_key):
+        endpoint = os.environ.get(
+            "DIGITALOCEAN_LLM_ENDPOINT",
+            "https://api.digitalocean.com/v2/gen-ai",
+        )
+        return _OpenAIClipIdentifier(
+            api_key=do_key,
+            model=os.environ.get("AI_MODEL", "gpt-4o"),
+            base_url=endpoint,
+        )
+
+    return _MockClipIdentifier()
+
+
+# ---------------------------------------------------------------------------
+# FFmpeg rendering
+# ---------------------------------------------------------------------------
+
+_ASPECT_FILTERS = {
+    "9:16": "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=1080:1920:flags=lanczos",
+    "1:1":  "crop='min(iw,ih)':'min(ih,iw)',scale=1080:1080:flags=lanczos",
+    "16:9": "scale=1920:1080:flags=lanczos",
+}
+
+# Candidate font paths (tried in order; first found wins)
+_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+]
+
+
+def _find_font() -> Optional[str]:
+    for p in _FONT_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def _escape_drawtext(text: str) -> str:
+    """Escape special characters for ffmpeg drawtext."""
+    return (
+        text.replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace(":", "\\:")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
+    )
+
+
+def _render_clip(
+    source_path: str,
+    start_seconds: float,
+    end_seconds: float,
+    aspect_ratio: str,
+    out_path: str,
+    hook_text: str = "",
+    cta_text: str = "",
+) -> None:
+    """
+    Use ffmpeg to cut, re-encode, and optionally overlay text on a clip.
+
+    Args:
+        source_path:   Local path to the source video.
+        start_seconds: Clip start in seconds.
+        end_seconds:   Clip end in seconds.
+        aspect_ratio:  One of '9:16', '1:1', '16:9'.
+        out_path:      Destination path for the rendered mp4.
+        hook_text:     Optional hook shown at top for first 4 seconds.
+        cta_text:      Optional CTA shown at bottom for last 5 seconds.
+    """
+    crop_filter = _ASPECT_FILTERS.get(aspect_ratio, _ASPECT_FILTERS["9:16"])
+    duration = end_seconds - start_seconds
+    font = _find_font()
+
+    # Build video filter chain
+    vf_parts = [crop_filter]
+
+    if font and (hook_text or cta_text):
+        # Resolution depends on aspect ratio
+        w_map = {"9:16": 1080, "1:1": 1080, "16:9": 1920}
+        h_map = {"9:16": 1920, "1:1": 1080, "16:9": 1080}
+        w = w_map.get(aspect_ratio, 1080)
+        h = h_map.get(aspect_ratio, 1920)
+        font_size = max(38, w // 22)
+        safe_zone = int(w * 0.05)
+
+        if hook_text:
+            safe_hook = _escape_drawtext(hook_text[:80])
+            # Semi-transparent dark band behind hook text
+            vf_parts.append(
+                f"drawbox=x=0:y={safe_zone}:w={w}:h={font_size + 24}:color=black@0.55:t=fill"
+            )
+            vf_parts.append(
+                f"drawtext=fontfile='{font}':text='{safe_hook}'"
+                f":fontcolor=white:fontsize={font_size}:borderw=2:bordercolor=black"
+                f":x=(w-text_w)/2:y={safe_zone + 12}"
+                f":enable='between(t,0,4)'"
+            )
+
+        if cta_text:
+            safe_cta = _escape_drawtext(cta_text[:50])
+            cta_y = h - font_size - safe_zone - 24
+            vf_parts.append(
+                f"drawbox=x=0:y={cta_y - 12}:w={w}:h={font_size + 24}:color=black@0.65:t=fill"
+            )
+            vf_parts.append(
+                f"drawtext=fontfile='{font}':text='{safe_cta}'"
+                f":fontcolor=white:fontsize={font_size}:borderw=2:bordercolor=black"
+                f":x=(w-text_w)/2:y={cta_y}"
+                f":enable='between(t,{max(0, duration - 5)},{duration})'"
+            )
+
+    vf = ",".join(vf_parts)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(start_seconds),
+        "-i", source_path,
+        "-t", str(duration),
+        "-vf", vf,
+        "-c:v", "libx264",
+        "-crf", "23",
+        "-preset", "fast",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-movflags", "+faststart",
+        out_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)  # noqa: S603
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg render failed: {result.stderr[-1000:]}")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def identify_and_queue_shorts(
+    episode,
+    transcript=None,
+    aspect_ratio: str = "9:16",
+    max_clips: int = SHORTS_MAX_CLIPS,
+    user=None,
+) -> list:
+    """
+    Use AI to identify compelling clip moments and queue VideoShort objects.
+
+    Does NOT render yet - call ``render_short`` for each queued short.
+
+    Args:
+        episode:      Episode model instance.
+        transcript:   Transcript instance (uses latest if omitted).
+        aspect_ratio: '9:16', '1:1', or '16:9'.
+        max_clips:    Max number of shorts to create.
+        user:         Django user for audit trail.
+
+    Returns:
+        List of VideoShort instances (status=QUEUED).
+    """
+    from ..constants import ArtifactType, ApprovalStatus, ClipPriority, ShortAspectRatio, ShortStatus  # noqa: PLC0415
+    from ..models import AIArtifact, ClipMoment, VideoShort  # noqa: PLC0415
+
+    if transcript is None:
+        transcript = episode.transcripts.order_by("-revision").first()
+
+    if transcript is None:
+        # No transcript yet — auto-transcribe the best available media asset.
+        from ..constants import AssetType, IngestionStatus  # noqa: PLC0415
+        from .transcription import is_directly_downloadable, transcribe_media_asset  # noqa: PLC0415
+
+        candidates = (
+            episode.media_assets
+            .filter(asset_type__in=[AssetType.VIDEO, AssetType.AUDIO])
+            .exclude(ingestion_status=IngestionStatus.FAILED)
+            .order_by(
+                # prefer video over audio, then most recently created
+                models.Case(
+                    models.When(asset_type=AssetType.VIDEO, then=0),
+                    models.When(asset_type=AssetType.AUDIO, then=1),
+                    default=2,
+                    output_field=models.IntegerField(),
+                ),
+                "-created_at",
+            )
+        )
+
+        media_asset = None
+        for candidate in candidates:
+            if candidate.file or is_directly_downloadable(candidate.external_url):
+                media_asset = candidate
+                break
+
+        if media_asset is None:
+            raise RuntimeError(
+                f"Episode '{episode.title}' has no directly-downloadable media asset and no transcript. "
+                "Upload the video/audio file directly or add a transcript manually."
+            )
+
+        logger.info(
+            "No transcript found for episode '%s' — auto-transcribing MediaAsset %s",
+            episode.title, media_asset.pk,
+        )
+        transcript = transcribe_media_asset(media_asset, user=user)
+
+    identifier = _get_identifier()
+    clips = identifier.identify(
+        transcript,
+        max_clips=max_clips,
+        min_dur=SHORTS_MIN_DURATION,
+        max_dur=SHORTS_MAX_DURATION,
+    )
+
+    # Store an AIArtifact for provenance
+    _do_key = os.environ.get("DIGITALOCEAN_LLM_API_KEY", "")
+    _explicit = os.environ.get("AI_PROVIDER", "").lower()
+    _resolved_provider = _explicit or ("digitalocean" if _do_key else "mock")
+
+    artifact = AIArtifact.objects.create(
+        episode=episode,
+        organization_uuid=episode.organization_uuid,
+        artifact_type=ArtifactType.SHORTS,
+        input_prompt=f"Identify {max_clips} shorts for episode: {episode.title}",
+        input_context_refs={"transcript_id": str(transcript.id)},
+        output_text=json.dumps(clips, indent=2),
+        provider=_resolved_provider,
+        model=os.environ.get("AI_MODEL", "gpt-4o"),
+        params={"max_clips": max_clips},
+        approval_status=ApprovalStatus.PENDING,
+        transparency_summary=f"AI-identified {len(clips)} short clip moments",
+        created_by=user,
+        updated_by=user,
+    )
+
+    priority_map = {
+        "gold": ClipPriority.GOLD,
+        "silver": ClipPriority.SILVER,
+        "bronze": ClipPriority.BRONZE,
+    }
+
+    video_shorts = []
+    for clip in clips:
+        start_ms = int(float(clip.get("start_seconds", 0)) * 1000)
+        end_ms = int(float(clip.get("end_seconds", 0)) * 1000)
+
+        # Create a ClipMoment for the timeline
+        clip_moment = ClipMoment.objects.create(
+            episode=episode,
+            transcript=transcript,
+            organization_uuid=episode.organization_uuid,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            title=clip.get("title", "Untitled short"),
+            hook=clip.get("hook", ""),
+            caption_draft=clip.get("caption", ""),
+            tags=clip.get("hashtags", []),
+            priority=priority_map.get(clip.get("priority", "silver"), ClipPriority.SILVER),
+            created_by=user,
+            updated_by=user,
+        )
+
+        short = VideoShort.objects.create(
+            episode=episode,
+            clip_moment=clip_moment,
+            organization_uuid=episode.organization_uuid,
+            title=clip.get("title", "Untitled short"),
+            caption=clip.get("caption", ""),
+            hashtags=clip.get("hashtags", []),
+            platform_captions=clip.get("platform_captions", {}),
+            start_ms=start_ms,
+            end_ms=end_ms,
+            aspect_ratio=aspect_ratio,
+            status=ShortStatus.QUEUED,
+            ai_caption_artifact=artifact,
+            created_by=user,
+            updated_by=user,
+        )
+        video_shorts.append(short)
+
+    logger.info(
+        "Queued %d VideoShort(s) for episode '%s'",
+        len(video_shorts), episode.title,
+    )
+    return video_shorts
+
+
+def render_short(video_short, source_video_path: Optional[str] = None, user=None) -> str:
+    """
+    Render a single VideoShort using ffmpeg and upload to DO Spaces.
+
+    Args:
+        video_short:       VideoShort model instance (must be QUEUED or FAILED).
+        source_video_path: Local path to source video. If omitted, downloads
+                           from the episode's primary MediaAsset.
+        user:              Django user for audit trail.
+
+    Returns:
+        Public CDN URL of the rendered short.
+    """
+    from . import storage  # noqa: PLC0415
+    from ..constants import ShortStatus  # noqa: PLC0415
+
+    video_short.status = ShortStatus.RENDERING
+    video_short.render_started_at = timezone.now()
+    video_short.updated_by = user
+    video_short.save(update_fields=["status", "render_started_at", "updated_by"])
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # ── 1. Resolve source video path ──────────────────────────────
+            if source_video_path is None:
+                source_video_path = _download_source_video(video_short.episode, tmp_dir)
+
+            # ── 2. Render the clip ─────────────────────────────────────────
+            start_s = video_short.start_ms / 1000.0
+            end_s = video_short.end_ms / 1000.0
+            ratio = video_short.aspect_ratio or "9:16"
+            out_filename = f"short_{video_short.id}.mp4"
+            out_path = os.path.join(tmp_dir, out_filename)
+
+            # Pull hook and CTA from the linked ClipMoment (or fall back)
+            hook_text = ""
+            cta_text = f"Watch full episode \u2192 {SHORTS_CTA_URL}"
+            if video_short.clip_moment:
+                hook_text = video_short.clip_moment.hook or ""
+
+            _render_clip(
+                source_video_path, start_s, end_s, ratio, out_path,
+                hook_text=hook_text,
+                cta_text=cta_text,
+            )
+
+            # ── 3. Upload to DO Spaces ────────────────────────────────────
+            video_short.status = ShortStatus.UPLOADING
+            video_short.save(update_fields=["status"])
+
+            spaces_key = storage.short_video_key(
+                str(video_short.organization_uuid),
+                str(video_short.episode_id),
+                str(video_short.id),
+                out_filename,
+            )
+            public_url = storage.upload_local_file(
+                out_path,
+                spaces_key,
+                content_type="video/mp4",
+                public=True,
+                extra_metadata={
+                    "episode-id": str(video_short.episode_id),
+                    "short-id": str(video_short.id),
+                },
+            )
+
+            # ── 4. Record final state ──────────────────────────────────────
+            file_size = os.path.getsize(out_path)
+            duration_s = (video_short.end_ms - video_short.start_ms) / 1000.0
+
+        video_short.status = ShortStatus.READY
+        video_short.spaces_key = spaces_key
+        video_short.public_url = public_url
+        video_short.file_size = file_size
+        video_short.duration_seconds = duration_s
+        video_short.render_completed_at = timezone.now()
+        video_short.error_message = ""
+        video_short.updated_by = user
+        video_short.save()
+
+        logger.info("VideoShort '%s' rendered: %s", video_short.title, public_url)
+        return public_url
+
+    except Exception as exc:
+        video_short.status = ShortStatus.FAILED
+        video_short.error_message = str(exc)
+        video_short.updated_by = user
+        video_short.save(update_fields=["status", "error_message", "updated_by"])
+        logger.exception("Failed to render VideoShort %s", video_short.pk)
+        raise
+
+
+def render_all_queued_shorts(episode, source_video_path: Optional[str] = None, user=None) -> list[dict]:
+    """
+    Render all QUEUED VideoShorts for an episode.
+
+    Args:
+        episode:           Episode model instance.
+        source_video_path: Local path to source video (downloaded once, shared).
+        user:              Django user for audit trail.
+
+    Returns:
+        List of dicts: [{short_id, title, status, public_url, error}, ...]
+    """
+    from ..constants import ShortStatus  # noqa: PLC0415
+
+    queued = list(episode.video_shorts.filter(status=ShortStatus.QUEUED))
+    if not queued:
+        logger.info("No QUEUED shorts for episode '%s'", episode.title)
+        return []
+
+    # If source_video_path not provided, download once and share
+    own_tmp = None
+    if source_video_path is None:
+        import tempfile as _tf  # noqa: PLC0415
+        own_tmp = _tf.mkdtemp()
+        try:
+            source_video_path = _download_source_video(episode, own_tmp)
+        except Exception as exc:
+            # Clean up and propagate
+            import shutil  # noqa: PLC0415
+            shutil.rmtree(own_tmp, ignore_errors=True)
+            raise RuntimeError(f"Could not download source video for episode '{episode.title}': {exc}") from exc
+
+    results = []
+    for short in queued:
+        result = {"short_id": str(short.id), "title": short.title, "error": None}
+        try:
+            url = render_short(short, source_video_path=source_video_path, user=user)
+            result["status"] = ShortStatus.READY
+            result["public_url"] = url
+        except Exception as exc:
+            result["status"] = ShortStatus.FAILED
+            result["public_url"] = None
+            result["error"] = str(exc)
+        results.append(result)
+
+    if own_tmp:
+        import shutil  # noqa: PLC0415
+        shutil.rmtree(own_tmp, ignore_errors=True)
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Internal: source video resolver
+# ---------------------------------------------------------------------------
+
+def _download_source_video(episode, tmp_dir: str) -> str:
+    """
+    Locate and return a local path to the episode's primary video asset.
+    Downloads from DO Spaces / external URL if needed.
+    """
+    from ..constants import AssetType  # noqa: PLC0415
+
+    video_assets = episode.media_assets.filter(asset_type=AssetType.VIDEO).order_by("created_at")
+    if not video_assets.exists():
+        raise RuntimeError(f"Episode '{episode.title}' has no video MediaAsset. Upload a video first.")
+
+    asset = video_assets.first()
+
+    if asset.file and hasattr(asset.file, "path"):
+        return asset.file.path
+
+    if asset.external_url:
+        import urllib.request  # noqa: PLC0415
+        ext = os.path.splitext(asset.external_url.split("?")[0])[-1] or ".mp4"
+        dest = os.path.join(tmp_dir, f"source_video{ext}")
+        urllib.request.urlretrieve(asset.external_url, dest)  # noqa: S310
+        return dest
+
+    raise RuntimeError(f"MediaAsset {asset.id} has neither a file nor an external_url.")

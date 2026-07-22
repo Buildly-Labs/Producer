@@ -58,11 +58,14 @@ INSTALLED_APPS = INSTALLED_APPS_DJANGO + INSTALLED_APPS_THIRD_PARTIES + \
     INSTALLED_APPS_LOCAL
 
 MIDDLEWARE = [
+    # Error-reporting middleware must be first so it catches all exceptions.
+    'production_ledger.error_middleware.ErrorReportingMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'production_ledger.gateway_auth.GatewaySSOMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -80,6 +83,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'production_ledger.context_processors.user_role_context',
             ],
         },
     },
@@ -220,9 +224,17 @@ SEARCH_SERVICE_ENABLED = True if os.getenv('SEARCH_SERVICE_ENABLED') == 'True' e
 
 
 # Authentication
-LOGIN_URL = '/auth/login/'
-LOGIN_REDIRECT_URL = '/ledger/'
-LOGOUT_REDIRECT_URL = '/auth/login/'
+# Use named URLs so FORCE_SCRIPT_NAME is respected automatically.
+LOGIN_URL = 'production_ledger:login'
+LOGIN_REDIRECT_URL = 'production_ledger:dashboard'
+# After Django logout, redirect to the gateway which clears the forge_auth cookie
+LOGOUT_REDIRECT_URL = '/logout'
+
+AUTHENTICATION_BACKENDS = [
+    'production_ledger.gateway_auth.GatewayTokenBackend',
+    'logic.backends.EmailOrUsernameBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
 
 
 # for local development

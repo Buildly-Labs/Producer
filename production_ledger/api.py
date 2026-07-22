@@ -5,13 +5,15 @@ All endpoints enforce organization scoping and RBAC.
 """
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.db import OperationalError, ProgrammingError
 
 from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .constants import ApprovalStatus, ArtifactType, Role
+from .constants import ApprovalStatus, ArtifactType, EpisodeStatus, Role
 from .models import (
     AIArtifact,
     ChecklistItem,
@@ -120,7 +122,7 @@ class ShowDetailAPI(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAPIVi
     
     def perform_update(self, serializer):
         if not has_role(self.request.user, self.get_object(), [Role.ADMIN]):
-            return Response({'error': 'Admin role required'}, status=status.HTTP_403_FORBIDDEN)
+            raise PermissionDenied('Admin role required')
         serializer.save(updated_by=self.request.user)
 
 
@@ -161,7 +163,7 @@ class EpisodeDetailAPI(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAP
     def perform_update(self, serializer):
         episode = self.get_object()
         if not has_role(self.request.user, episode, [Role.ADMIN, Role.HOST, Role.PRODUCER]):
-            return Response({'error': 'Insufficient permissions'}, status=status.HTTP_403_FORBIDDEN)
+            raise PermissionDenied('Insufficient permissions')
         serializer.save(updated_by=self.request.user)
 
 
@@ -169,6 +171,26 @@ class EpisodeStatusAPI(APIView):
     """Change episode status."""
     
     permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        """Return current status and available transitions for an episode."""
+        episode = get_object_or_404(Episode, pk=pk)
+
+        if not has_minimum_role(request.user, episode.show, Role.GUEST):
+            return Response({'error': 'Guest role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        available = EpisodeStatus.TRANSITIONS.get(episode.status, [])
+        choices = dict(EpisodeStatus.CHOICES)
+        return Response({
+            'episode_id': str(episode.id),
+            'current_status': episode.status,
+            'current_status_label': episode.get_status_display(),
+            'available_transitions': [
+                {'status': s, 'label': choices.get(s, s.title())}
+                for s in available
+            ],
+            'checklist_complete': episode.is_checklist_complete(),
+        })
     
     def post(self, request, pk):
         episode = get_object_or_404(Episode, pk=pk)
@@ -312,6 +334,55 @@ class MediaAssetDetailAPI(OrganizationScopedMixin, generics.RetrieveUpdateDestro
     queryset = MediaAsset.objects.all()
     serializer_class = MediaAssetSerializer
     permission_classes = [IsAuthenticated]
+
+
+def _estimate_media_asset_time(asset: MediaAsset) -> int:
+    """Estimate how long audio extraction is likely to take in seconds."""
+    if asset.duration_seconds and asset.duration_seconds > 0:
+        # Allow around 1.5x duration for extraction + optional intro synthesis.
+        return min(max(120, int(asset.duration_seconds * 1.5)), 900)
+
+    if asset.file_size and asset.file_size > 0:
+        size_mb = asset.file_size / (1024 * 1024)
+        if size_mb <= 50:
+            return 120
+        if size_mb <= 150:
+            return 180
+        if size_mb <= 400:
+            return 300
+        return 420
+
+    return 180
+
+
+class MediaAssetStatusAPI(APIView):
+    """
+    GET /api/media/<pk>/status/
+
+    Lightweight polling endpoint for background jobs (e.g. audio extraction).
+    Returns the current ingestion_status and error_message of a MediaAsset.
+    Used by the publish page to show live progress without a full page reload.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        from .models import MediaAsset  # noqa: PLC0415
+        asset = get_object_or_404(MediaAsset, pk=pk)
+        # Scope check — user must belong to the same org
+        org_uuid = get_user_organization_uuid(request.user)
+        if org_uuid and str(asset.organization_uuid) != str(org_uuid):
+            raise PermissionDenied
+        elapsed_seconds = int((timezone.now() - asset.created_at).total_seconds())
+        estimated_seconds = _estimate_media_asset_time(asset)
+        return Response({
+            'status': asset.ingestion_status,
+            'label': asset.label,
+            'error': asset.error_message or None,
+            'duration_seconds': asset.duration_seconds,
+            'external_url': asset.external_url,
+            'elapsed_seconds': elapsed_seconds,
+            'estimated_seconds': estimated_seconds,
+        })
 
 
 # =============================================================================
@@ -672,3 +743,1226 @@ class ExportClipsAPI(APIView):
         
         content = export_clips_csv(episode)
         return Response({'csv': content})
+
+
+# =============================================================================
+# VIDEO UPLOAD + TRANSCRIPTION
+# =============================================================================
+
+class UploadVideoAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/upload-video/
+
+    Upload a video file to DO Spaces, create a MediaAsset, and optionally
+    auto-trigger transcription.
+
+    Form fields:
+        video       — multipart video file (required)
+        label       — display label (optional)
+        auto_transcribe — 'true' to immediately trigger Whisper (default: true)
+
+    Returns:
+        {media_asset_id, spaces_key, public_url, transcript_id (if transcribed)}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        from .models import MediaAsset  # noqa: PLC0415
+        from .constants import AssetType, IngestionStatus, SourceType  # noqa: PLC0415
+        from .services import storage, transcription as transcription_svc  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        video_file = request.FILES.get('video')
+        if not video_file:
+            return Response({'error': 'video file is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        label = request.data.get('label', video_file.name)
+        auto_transcribe = request.data.get('auto_transcribe', 'true').lower() != 'false'
+
+        # Upload to DO Spaces
+        spaces_key = storage.episode_video_key(
+            str(episode.organization_uuid),
+            str(episode.id),
+            video_file.name,
+        )
+        try:
+            public_url = storage.upload_file(
+                video_file,
+                spaces_key,
+                content_type=video_file.content_type or 'video/mp4',
+                public=True,
+                extra_metadata={'episode-id': str(episode.id)},
+            )
+        except Exception as exc:
+            return Response({'error': f'Upload failed: {exc}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Create MediaAsset record
+        media_asset = MediaAsset.objects.create(
+            episode=episode,
+            organization_uuid=episode.organization_uuid,
+            asset_type=AssetType.VIDEO,
+            source_type=SourceType.EXTERNAL_LINK,
+            external_url=public_url,
+            label=label,
+            filename=video_file.name,
+            content_type=video_file.content_type or 'video/mp4',
+            file_size=video_file.size,
+            ingestion_status=IngestionStatus.READY,
+            ingested_by=request.user,
+            created_by=request.user,
+            updated_by=request.user,
+        )
+
+        result = {
+            'media_asset_id': str(media_asset.id),
+            'spaces_key': spaces_key,
+            'public_url': public_url,
+            'transcript_id': None,
+        }
+
+        # Optionally trigger transcription
+        if auto_transcribe:
+            from .services.tasks import run_background_task  # noqa: PLC0415
+            from .models import BackgroundTask  # noqa: PLC0415
+
+            def _run(asset_pk, user):
+                from .models import MediaAsset as _MA  # noqa: PLC0415
+                asset = _MA.objects.get(pk=asset_pk)
+                transcription_svc.transcribe_media_asset(asset, user=user)
+
+            bg_task = run_background_task(
+                task_type=BackgroundTask.TASK_TRANSCRIPTION,
+                label=f'Auto-transcribe: {label}',
+                fn=_run,
+                episode=episode,
+                created_by=request.user,
+                asset_pk=media_asset.pk,
+                user=request.user,
+            )
+            result['transcription_status'] = 'started'
+            result['task_id'] = str(bg_task.pk)
+
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
+class TranscribeMediaAssetAPI(APIView):
+    """
+    POST /api/media/<pk>/transcribe/
+
+    Trigger Whisper transcription on an existing MediaAsset.
+
+    Returns:
+        {transcript_id, revision, provider, model}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .models import MediaAsset  # noqa: PLC0415
+        from .services import transcription as transcription_svc  # noqa: PLC0415
+
+        media_asset = get_object_or_404(MediaAsset, pk=pk)
+        if not has_minimum_role(request.user, media_asset.episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .services.tasks import run_background_task  # noqa: PLC0415
+        from .models import BackgroundTask  # noqa: PLC0415
+
+        def _run(asset_pk, user):
+            from .models import MediaAsset as _MA  # noqa: PLC0415
+            asset = _MA.objects.get(pk=asset_pk)
+            transcription_svc.transcribe_media_asset(asset, user=user)
+
+        bg_task = run_background_task(
+            task_type=BackgroundTask.TASK_TRANSCRIPTION,
+            label=f'Transcribe: {media_asset.label or media_asset.filename or str(media_asset.pk)[:8]}',
+            fn=_run,
+            episode=media_asset.episode,
+            created_by=request.user,
+            asset_pk=media_asset.pk,
+            user=request.user,
+        )
+
+        return Response(
+            {'status': 'started', 'media_asset_id': str(media_asset.pk),
+             'task_id': str(bg_task.pk),
+             'message': 'Transcription started in background. Poll /api/tasks/<task_id>/ for status.'},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+# =============================================================================
+# PODCAST DISTRIBUTION
+# =============================================================================
+
+class PodcastFeedConfigAPI(APIView):
+    """
+    GET  /api/shows/<show_id>/podcast-feed/  — retrieve feed config
+    PUT  /api/shows/<show_id>/podcast-feed/  — update feed config fields
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _get_show(self, show_id, user):
+        show = get_object_or_404(Show, pk=show_id)
+        if not has_minimum_role(user, show, Role.PRODUCER):
+            return None, Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+        return show, None
+
+    def get(self, request, show_id):
+        from .models import PodcastFeedConfig  # noqa: PLC0415
+        from .services.distribution import _get_feed_config  # noqa: PLC0415
+
+        show, err = self._get_show(show_id, request.user)
+        if err:
+            return err
+        config = _get_feed_config(show)
+        return Response({
+            'id': str(config.id),
+            'show': str(show.id),
+            'feed_title': config.feed_title,
+            'feed_description': config.feed_description,
+            'feed_language': config.feed_language,
+            'author_name': config.author_name,
+            'author_email': config.author_email,
+            'category': config.category,
+            'subcategory': config.subcategory,
+            'explicit': config.explicit,
+            'website_url': config.website_url,
+            'cover_art_url': config.cover_art_url,
+            'feed_public_url': config.feed_public_url,
+            'feed_last_built': config.feed_last_built,
+        })
+
+    def put(self, request, show_id):
+        from .services.distribution import _get_feed_config  # noqa: PLC0415
+
+        show, err = self._get_show(show_id, request.user)
+        if err:
+            return err
+        config = _get_feed_config(show)
+
+        updatable = [
+            'feed_title', 'feed_description', 'feed_language',
+            'author_name', 'author_email', 'category', 'subcategory',
+            'explicit', 'website_url', 'cover_art_url',
+        ]
+        for field in updatable:
+            if field in request.data:
+                setattr(config, field, request.data[field])
+        config.updated_by = request.user
+        config.save()
+        return Response({'status': 'updated', 'feed_public_url': config.feed_public_url})
+
+
+class RebuildPodcastFeedAPI(APIView):
+    """
+    POST /api/shows/<show_id>/podcast-feed/rebuild/
+
+    Regenerate and re-upload the RSS feed XML to DO Spaces.
+    Returns the new public feed URL.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, show_id):
+        from .services.distribution import build_and_publish_feed  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=show_id)
+        if not has_minimum_role(request.user, show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            feed_url = build_and_publish_feed(show, user=request.user)
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({'feed_url': feed_url, 'status': 'rebuilt'})
+
+
+class UploadCoverArtAPI(APIView):
+    """
+    POST /api/shows/<show_id>/podcast-feed/cover-art/
+
+    Upload podcast cover art to DO Spaces and update PodcastFeedConfig.
+    Apple Podcasts requires 1400×1400 – 3000×3000 px JPEG or PNG.
+
+    Form fields:
+        cover_art  — multipart image file (jpg / png)
+
+    Returns:
+        {cover_art_url}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, show_id):
+        from .services import storage  # noqa: PLC0415
+        from .services.distribution import _get_feed_config  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=show_id)
+        if not has_minimum_role(request.user, show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        image_file = request.FILES.get('cover_art')
+        if not image_file:
+            return Response({'error': 'cover_art file is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed_types = {'image/jpeg', 'image/png', 'image/jpg'}
+        if image_file.content_type not in allowed_types:
+            return Response(
+                {'error': f'cover_art must be JPEG or PNG, got {image_file.content_type}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        spaces_key = storage.cover_art_key(
+            str(show.organization_uuid), show.slug, image_file.name
+        )
+        try:
+            public_url = storage.upload_file(
+                image_file,
+                spaces_key,
+                content_type=image_file.content_type,
+                public=True,
+                extra_metadata={'show-slug': show.slug},
+            )
+        except Exception as exc:
+            return Response({'error': f'Upload failed: {exc}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        config = _get_feed_config(show)
+        config.cover_art_url = public_url
+        config.updated_by = request.user
+        config.save(update_fields=['cover_art_url', 'updated_by', 'updated_at'])
+
+        return Response({'cover_art_url': public_url}, status=status.HTTP_200_OK)
+
+
+class PodcastDistributionGuideAPI(APIView):
+    """
+    GET /api/shows/<show_id>/podcast-distribution-guide/
+
+    Returns a step-by-step guide for submitting the show's RSS feed to each
+    major podcast platform, including current distribution status.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, show_id):
+        from .services.distribution import get_platform_submission_guide  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=show_id)
+        if not has_minimum_role(request.user, show, Role.HOST):
+            return Response({'error': 'Host role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        guide = get_platform_submission_guide(show)
+        return Response({'show': str(show.id), 'platforms': guide})
+
+
+class PublishEpisodeAudioAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/publish-audio/
+
+    Upload episode audio to DO Spaces and create PodcastDistribution records
+    for all platforms.  Rebuilds the RSS feed automatically.
+
+    Form fields:
+        audio          — multipart audio file (mp3 / m4a required)
+        duration_seconds — integer (optional, auto-detected when possible)
+        rebuild_feed   — 'true' to also rebuild the RSS feed (default: true)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        from .services.distribution import build_and_publish_feed, publish_episode_audio  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        audio_file = request.FILES.get('audio')
+        if not audio_file:
+            return Response({'error': 'audio file is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        duration_seconds = int(request.data.get('duration_seconds', 0) or 0)
+        rebuild_feed = request.data.get('rebuild_feed', 'true').lower() != 'false'
+
+        try:
+            result = publish_episode_audio(
+                episode,
+                audio_file,
+                audio_file.name,
+                duration_seconds=duration_seconds,
+                user=request.user,
+            )
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if rebuild_feed:
+            from .services.tasks import run_background_task  # noqa: PLC0415
+            from .models import BackgroundTask  # noqa: PLC0415
+            _show_pk = str(episode.show.pk)
+            _user_pk = request.user.pk
+
+            def _bg_rebuild(show_pk, user_pk):
+                from django.contrib.auth import get_user_model  # noqa: PLC0415
+                from .models import Show as _Show  # noqa: PLC0415
+                from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
+                _build(_Show.objects.get(pk=show_pk), user=get_user_model().objects.get(pk=user_pk))
+
+            bg_task = run_background_task(
+                task_type=BackgroundTask.TASK_FEED_REBUILD,
+                label=f'RSS feed rebuild: {episode.show.title if hasattr(episode.show, "title") else _show_pk}',
+                fn=_bg_rebuild,
+                episode=episode,
+                created_by=request.user,
+                show_pk=_show_pk,
+                user_pk=_user_pk,
+            )
+
+        return Response({
+            'audio_url': result['audio_url'],
+            'distribution_count': len(result['distributions']),
+            'feed_rebuild': 'queued' if rebuild_feed else 'skipped',
+            'feed_task_id': str(bg_task.pk) if rebuild_feed else None,
+        }, status=status.HTTP_201_CREATED)
+
+
+class EpisodeDistributionListAPI(APIView):
+    """
+    GET /api/episodes/<episode_id>/distributions/
+
+    List PodcastDistribution records for an episode (one per platform).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, episode_id):
+        from .models import PodcastDistribution  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.HOST):
+            return Response({'error': 'Host role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        dists = PodcastDistribution.objects.filter(episode=episode).order_by('platform')
+        data = [
+            {
+                'id': str(d.id),
+                'platform': d.platform,
+                'platform_label': d.get_platform_display(),
+                'status': d.status,
+                'audio_public_url': d.audio_public_url,
+                'platform_url': d.platform_url,
+                'submitted_at': d.submitted_at,
+                'went_live_at': d.went_live_at,
+                'error_message': d.error_message,
+            }
+            for d in dists
+        ]
+        return Response({'episode': str(episode.id), 'distributions': data})
+
+
+# =============================================================================
+# VIDEO SHORTS
+# =============================================================================
+
+class VideoShortListAPI(APIView):
+    """
+    GET /api/episodes/<episode_id>/shorts/
+
+    List all VideoShorts for an episode.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, episode_id):
+        from .models import VideoShort  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.HOST):
+            return Response({'error': 'Host role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        shorts = VideoShort.objects.filter(episode=episode).order_by('start_ms')
+        data = [
+            {
+                'id': str(s.id),
+                'title': s.title,
+                'caption': s.caption,
+                'hashtags': s.hashtags,
+                'start_ms': s.start_ms,
+                'end_ms': s.end_ms,
+                'start_formatted': s.start_formatted,
+                'end_formatted': s.end_formatted,
+                'duration_ms': s.duration_ms,
+                'aspect_ratio': s.aspect_ratio,
+                'status': s.status,
+                'public_url': s.public_url,
+                'shareable_link': s.shareable_link,
+                'error_message': s.error_message,
+            }
+            for s in shorts
+        ]
+        return Response({'episode': str(episode.id), 'shorts': data})
+
+
+class IdentifyShortsAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/shorts/identify/
+
+    Use AI to identify compelling clip moments and queue VideoShort objects.
+
+    Body (JSON):
+        aspect_ratio   — '9:16' | '1:1' | '16:9' (default: '9:16')
+        max_clips      — integer 1-10 (default: 5)
+        transcript_id  — UUID of specific transcript to use (optional)
+
+    Returns:
+        {queued: [{id, title, start_ms, end_ms, status}, ...]}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        from .models import Transcript, VideoShort  # noqa: PLC0415
+        from .services.shorts import identify_and_queue_shorts  # noqa: PLC0415
+        from .constants import ShortAspectRatio  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        aspect_ratio = request.data.get('aspect_ratio', ShortAspectRatio.VERTICAL)
+        valid_ratios = [r for r, _ in ShortAspectRatio.CHOICES]
+        if aspect_ratio not in valid_ratios:
+            return Response({'error': f'aspect_ratio must be one of {valid_ratios}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_clips = int(request.data.get('max_clips', 5))
+        if not 1 <= max_clips <= 10:
+            return Response({'error': 'max_clips must be between 1 and 10.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        transcript = None
+        transcript_id = request.data.get('transcript_id')
+        if transcript_id:
+            transcript = get_object_or_404(Transcript, pk=transcript_id, episode=episode)
+
+        if transcript is None:
+            # Defer long-running auto-transcription + short identification
+            # to a background thread so the browser does not time out.
+            import threading  # noqa: PLC0415
+            import django.db  # noqa: PLC0415
+            from django.contrib.auth import get_user_model  # noqa: PLC0415
+            from .models import Episode as _Episode  # noqa: PLC0415
+
+            def _run_background(ep_pk, user_pk, aspect_ratio, max_clips):
+                import logging  # noqa: PLC0415
+                logger = logging.getLogger(__name__)
+                try:
+                    User = get_user_model()
+                    user = User.objects.get(pk=user_pk)
+                    ep = _Episode.objects.get(pk=ep_pk)
+                    identify_and_queue_shorts(
+                        ep,
+                        transcript=None,
+                        aspect_ratio=aspect_ratio,
+                        max_clips=max_clips,
+                        user=user,
+                    )
+                except Exception:
+                    logger.exception(
+                        'Background short identification failed for episode %s', ep_pk
+                    )
+                finally:
+                    django.db.connections.close_all()
+
+            from .services.tasks import run_background_task as _run_bg_task  # noqa: PLC0415
+            from .models import BackgroundTask as _BT  # noqa: PLC0415
+
+            def _bg_identify(ep_pk, user_pk, aspect_ratio, max_clips):
+                from django.contrib.auth import get_user_model as _gum  # noqa: PLC0415
+                from .models import Episode as _Ep  # noqa: PLC0415
+                user = _gum().objects.get(pk=user_pk)
+                ep = _Ep.objects.get(pk=ep_pk)
+                identify_and_queue_shorts(ep, transcript=None, aspect_ratio=aspect_ratio,
+                                          max_clips=max_clips, user=user)
+
+            bg_task = _run_bg_task(
+                task_type=_BT.TASK_SHORT_IDENTIFY,
+                label=f'AI short identification: {episode.title[:50]}',
+                fn=_bg_identify,
+                episode=episode,
+                created_by=request.user,
+                ep_pk=str(episode.pk),
+                user_pk=request.user.pk,
+                aspect_ratio=aspect_ratio,
+                max_clips=max_clips,
+            )
+            return Response(
+                {
+                    'status': 'started',
+                    'task_id': str(bg_task.pk),
+                    'message': 'Clip identification is running in the background. You can leave this page — the results will appear when you return.',
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        try:
+            video_shorts = identify_and_queue_shorts(
+                episode,
+                transcript=transcript,
+                aspect_ratio=aspect_ratio,
+                max_clips=max_clips,
+                user=request.user,
+            )
+        except RuntimeError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        data = [
+            {'id': str(s.id), 'title': s.title, 'start_ms': s.start_ms, 'end_ms': s.end_ms, 'status': s.status}
+            for s in video_shorts
+        ]
+        return Response({'queued': data, 'count': len(data)}, status=status.HTTP_201_CREATED)
+
+
+class VideoShortDetailAPI(APIView):
+    """
+    GET  /api/shorts/<pk>/  — retrieve a VideoShort
+    PATCH /api/shorts/<pk>/ — update title, caption, hashtags
+    DELETE /api/shorts/<pk>/ — delete
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _get_short(self, pk, user, min_role=Role.HOST):
+        from .models import VideoShort  # noqa: PLC0415
+
+        short = get_object_or_404(VideoShort, pk=pk)
+        if not has_minimum_role(user, short.episode.show, min_role):
+            return None, Response({'error': 'Insufficient role.'}, status=status.HTTP_403_FORBIDDEN)
+        return short, None
+
+    def get(self, request, pk):
+        short, err = self._get_short(pk, request.user)
+        if err:
+            return err
+        return Response({
+            'id': str(short.id),
+            'title': short.title,
+            'caption': short.caption,
+            'hashtags': short.hashtags,
+            'start_ms': short.start_ms,
+            'end_ms': short.end_ms,
+            'start_formatted': short.start_formatted,
+            'end_formatted': short.end_formatted,
+            'duration_ms': short.duration_ms,
+            'aspect_ratio': short.aspect_ratio,
+            'status': short.status,
+            'public_url': short.public_url,
+            'shareable_link': short.shareable_link,
+            'file_size': short.file_size,
+            'duration_seconds': short.duration_seconds,
+            'render_completed_at': short.render_completed_at,
+            'error_message': short.error_message,
+        })
+
+    def patch(self, request, pk):
+        short, err = self._get_short(pk, request.user, min_role=Role.PRODUCER)
+        if err:
+            return err
+        for field in ('title', 'caption', 'hashtags'):
+            if field in request.data:
+                setattr(short, field, request.data[field])
+        short.updated_by = request.user
+        short.save()
+        return Response({'status': 'updated'})
+
+    def delete(self, request, pk):
+        short, err = self._get_short(pk, request.user, min_role=Role.PRODUCER)
+        if err:
+            return err
+        short.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RenderShortAPI(APIView):
+    """
+    POST /api/shorts/<pk>/render/
+
+    Render a single VideoShort using ffmpeg and upload to DO Spaces.
+    The episode must have at least one video MediaAsset stored (with an
+    external_url pointing at a downloadable video).
+
+    Returns:
+        {status, public_url, shareable_link, duration_seconds, file_size}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .models import VideoShort  # noqa: PLC0415
+        from .services.shorts import render_short  # noqa: PLC0415
+
+        short = get_object_or_404(VideoShort, pk=pk)
+        if not has_minimum_role(request.user, short.episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            public_url = render_short(short, user=request.user)
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        short.refresh_from_db()
+        return Response({
+            'status': short.status,
+            'public_url': short.public_url,
+            'shareable_link': short.shareable_link,
+            'duration_seconds': short.duration_seconds,
+            'file_size': short.file_size,
+        })
+
+
+class RenderAllShortsAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/shorts/render-all/
+
+    Render all QUEUED VideoShorts for an episode in sequence.
+
+    Returns:
+        {results: [{short_id, title, status, public_url, error}, ...]}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        from .services.shorts import render_all_queued_shorts  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            return Response({'error': 'Producer role required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            results = render_all_queued_shorts(episode, user=request.user)
+        except RuntimeError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        return Response({'results': results, 'count': len(results)})
+
+
+# =============================================================================
+# DIRECT-TO-SPACES UPLOAD  (presigned PUT — bypasses nginx/gunicorn)
+# =============================================================================
+
+class MediaPresignUploadAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/media/presign/
+
+    Generate a short-lived presigned PUT URL so the browser can upload a file
+    directly to DigitalOcean Spaces without streaming through the Django server.
+
+    Body (JSON):
+        filename      — original filename (used to build the storage key)
+        content_type  — MIME type of the file
+        asset_type    — value from AssetType choices
+
+    Returns:
+        {url, key, public_url, expires_in}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        import logging
+        import os as _os
+        import signal
+        import uuid as _uuid
+        from .services import storage  # noqa: PLC0415
+
+        logger = logging.getLogger(__name__)
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode, Role.EDITOR):
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        filename = request.data.get('filename', 'upload')
+        content_type = request.data.get('content_type', 'application/octet-stream')
+
+        # Sanitise filename — strip path traversal, collapse whitespace
+        safe_name = _os.path.basename(filename).replace(' ', '_')
+        if not safe_name:
+            safe_name = 'upload'
+        unique_prefix = _uuid.uuid4().hex[:8]
+
+        key = storage.media_asset_key(
+            str(episode.organization_uuid),
+            str(episode_id),
+            unique_prefix,
+            safe_name,
+        )
+
+        EXPIRES = 3600
+
+        class _PresignTimeout(Exception):
+            pass
+
+        def _timeout_handler(signum, frame):  # noqa: ARG001
+            raise _PresignTimeout('Presign generation timed out')
+
+        try:
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(8)
+            result = storage.generate_presigned_upload_url(key, content_type, expires=EXPIRES)
+            signal.alarm(0)
+        except _PresignTimeout:
+            logger.exception('Presign timeout for episode=%s user=%s key=%s', episode_id, request.user.id, key)
+            return Response(
+                {'detail': 'Upload URL generation timed out. Please retry in a few seconds.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception as exc:
+            signal.alarm(0)
+            logger.exception('Presign generation failed for episode=%s user=%s key=%s', episode_id, request.user.id, key)
+            return Response({'detail': f'Could not generate upload URL: {exc}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        result['expires_in'] = EXPIRES
+        return Response(result)
+
+
+class MediaAssetConfirmUploadAPI(APIView):
+    """
+    POST /api/episodes/<episode_id>/media/confirm/
+
+    After the browser finishes uploading directly to DO Spaces, call this
+    endpoint to create the MediaAsset record in the database.
+
+    Body (JSON):
+        key           — storage key returned by the presign endpoint
+        public_url    — CDN URL returned by the presign endpoint
+        asset_type    — value from AssetType choices
+        filename      — original filename
+        file_size     — byte size of the uploaded file
+        content_type  — MIME type
+        label         — (optional) display name
+
+    Returns:
+        {id, public_url}  with HTTP 201
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, episode_id):
+        import os as _os
+        from .constants import AssetType, IngestionStatus, SourceType  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        if not has_minimum_role(request.user, episode, Role.EDITOR):
+            return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        key = (request.data.get('key') or '').strip()
+        public_url = (request.data.get('public_url') or '').strip()
+        asset_type = (request.data.get('asset_type') or '').strip()
+        filename = (request.data.get('filename') or _os.path.basename(key))
+        file_size = request.data.get('file_size')
+        content_type = (request.data.get('content_type') or '').strip()
+        label = (request.data.get('label') or '').strip()
+
+        if not key or not public_url or not asset_type:
+            return Response(
+                {'detail': 'key, public_url, and asset_type are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_asset_types = {c[0] for c in AssetType.CHOICES}
+        if asset_type not in valid_asset_types:
+            return Response(
+                {'detail': f'Invalid asset_type. Valid values: {sorted(valid_asset_types)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            asset = MediaAsset(
+                episode=episode,
+                organization_uuid=episode.organization_uuid,
+                asset_type=asset_type,
+                source_type=SourceType.EXTERNAL_LINK,
+                external_url=public_url,
+                label=label or _os.path.splitext(filename)[0],
+                filename=filename,
+                content_type=content_type,
+                file_size=int(file_size) if file_size else None,
+                ingestion_status=IngestionStatus.READY,
+                ingested_by=request.user,
+                created_by=request.user,
+            )
+            asset.save()
+        except (OperationalError, ProgrammingError):
+            return Response(
+                {
+                    'detail': (
+                        'Media upload reached storage, but database schema is out of sync. '
+                        'Run Producer migrations and retry confirm.'
+                    )
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # Make the object publicly readable now that the DB record is confirmed.
+        # ACL was not signed into the presigned URL (for browser CORS compatibility),
+        # so we set it here server-side instead.
+        try:
+            from .services import storage as _storage  # noqa: PLC0415
+            _storage.make_public(key)
+        except Exception as exc:
+            logger.warning('Could not set public ACL on %s: %s', key, exc)
+
+        return Response({'id': str(asset.id), 'public_url': public_url},
+                        status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Intro TTS Preview
+# ---------------------------------------------------------------------------
+
+class IntroPreviewAPI(APIView):
+    """
+    POST /api/episodes/<pk>/intro-preview/
+
+    Generate a TTS preview of the intro announcement using OpenAI TTS
+    (falls back to system TTS).  The generated audio is stored in a server
+    temp file whose path is saved in the session under the key
+    ``intro_preview_<episode_pk>``.
+
+    Returns:
+        {
+            "token":    "<uuid>",          # used by IntroPreviewServeView
+            "duration": 12.3,              # seconds
+            "voice":    "coral",
+            "model":    "gpt-4o-mini-tts",
+        }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .models import Episode  # noqa: PLC0415
+        from .services.tts import _openai_tts, _edge_tts, _resolve_openai_key, VOICES, MODELS, DEFAULT_VOICE, DEFAULT_MODEL, EDGE_TTS_VOICES, DEFAULT_EDGE_VOICE  # noqa: PLC0415
+        import uuid as _uuid  # noqa: PLC0415
+        import tempfile as _tmp  # noqa: PLC0415
+        import shutil as _sh  # noqa: PLC0415
+        from pathlib import Path as _Path  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=pk)
+
+        # Permission: at minimum a viewer can preview
+        if not has_minimum_role(request.user, episode.show, 'viewer'):
+            raise PermissionDenied
+
+        text  = (request.data.get('text') or '').strip()
+        voice = request.data.get('voice', DEFAULT_VOICE)
+        model = request.data.get('model', DEFAULT_MODEL)
+        edge_voice = request.data.get('edge_voice', DEFAULT_EDGE_VOICE)
+
+        valid_voices = [v for v, _ in VOICES]
+        if voice not in valid_voices:
+            voice = DEFAULT_VOICE
+        valid_models = [m for m, _ in MODELS]
+        if model not in valid_models:
+            model = DEFAULT_MODEL
+
+        if not text:
+            from .services.audio_extraction import _default_intro_text  # noqa: PLC0415
+            text = _default_intro_text(
+                episode_title=episode.title or 'Untitled Episode',
+                show_name=episode.show.name or 'Podcast',
+            )
+
+        org_uuid = episode.show.organization_uuid
+        openai_key = _resolve_openai_key(org_uuid)
+
+        if openai_key:
+            try:
+                tts_path, duration = _openai_tts(text, voice, model, speed=1.0, api_key=openai_key)
+                used_engine = 'openai'
+            except Exception as exc:
+                return Response(
+                    {'detail': f'OpenAI TTS failed: {exc}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+        else:
+            # No OpenAI key — use edge-tts (free Microsoft neural voices)
+            try:
+                tts_path, duration = _edge_tts(text, voice=edge_voice)
+                used_engine = 'edge'
+                voice = edge_voice
+            except Exception as exc:
+                return Response(
+                    {'detail': f'Edge-TTS failed: {exc}. Configure an OpenAI API key in Settings → API Keys for higher-quality voices.'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # Store the file in a stable session-scoped temp location
+        token = str(_uuid.uuid4())
+        serve_dir = _Path(_tmp.gettempdir()) / 'forge_tts_serve'
+        serve_dir.mkdir(exist_ok=True)
+        dest = serve_dir / f'{token}.mp3'
+        _sh.move(str(tts_path), str(dest))
+
+        # Save token → episode_pk mapping in session so serve view can validate
+        session_key = f'intro_preview_{pk}'
+        request.session[session_key] = token
+        request.session.modified = True
+
+        return Response({
+            'token':    token,
+            'duration': round(duration, 1),
+            'voice':    voice,
+            'model':    model,
+            'engine':   used_engine,
+        }, status=status.HTTP_200_OK)
+
+
+# ===========================================================================
+# Error Reporting API
+# ===========================================================================
+
+class ErrorReportCreateAPI(APIView):
+    """
+    POST /api/errors/report/
+
+    Create a GitHub issue for a captured error.  The error details are
+    retrieved from the Django cache using the error_id set by
+    ErrorReportingMiddleware.
+
+    Body (JSON):
+        error_id   — 12-char ID shown on the error page  (required)
+        user_note  — optional free-text note from the user
+
+    Returns:
+        {issue_number, issue_url, issue_title}
+    """
+    # Allow unauthenticated users to report errors — they may not be logged in.
+    permission_classes = []
+
+    def post(self, request):
+        from .error_middleware import get_error  # noqa: PLC0415
+        from .services.error_reporter import create_error_issue  # noqa: PLC0415
+
+        error_id  = request.data.get('error_id', '').strip()
+        user_note = request.data.get('user_note', '').strip()[:1000]
+
+        if not error_id:
+            return Response({'error': 'error_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        error_data = get_error(error_id)
+        if not error_data:
+            return Response(
+                {'error': 'Error details not found or have expired. Please reload and try again.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            result = create_error_issue(error_id, error_data, user_note=user_note)
+        except RuntimeError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
+class ErrorReportDetailAPI(APIView):
+    """
+    GET /api/errors/<error_id>/
+
+    Retrieve raw error details from the cache (developer use only).
+    Requires staff status.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, error_id):
+        if not request.user.is_staff:
+            return Response({'error': 'Staff access required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .error_middleware import get_error  # noqa: PLC0415
+
+        data = get_error(error_id)
+        if data is None:
+            return Response({'error': 'Not found or expired.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error_id': error_id, **data})
+
+
+class ErrorIssueListAPI(APIView):
+    """
+    GET /api/errors/issues/
+
+    Returns open GitHub issues tagged ``auto-reported``.
+    Staff only.  Uses GITHUB_TOKEN + GITHUB_REPO settings.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_staff:
+            return Response({'error': 'Staff access required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .services.error_reporter import list_open_error_issues  # noqa: PLC0415
+
+        issues = list_open_error_issues()
+        return Response({'issues': issues, 'count': len(issues)})
+
+
+class ErrorIssueDismissAPI(APIView):
+    """
+    POST /api/errors/issues/<issue_number>/dismiss/
+
+    Close a GitHub error issue (dismiss without fixing) or mark resolved.
+    Staff only.
+
+    Body (JSON):
+        comment  — optional comment to add before closing  (default: 'Dismissed by developer.')
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, issue_number: int):
+        if not request.user.is_staff:
+            return Response({'error': 'Staff access required.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .services.error_reporter import close_issue  # noqa: PLC0415
+
+        comment = request.data.get('comment', '').strip() or (
+            f'Dismissed by {request.user} via ProducerForge developer panel.'
+        )
+        close_issue(issue_number, comment=comment)
+        return Response({'status': 'closed', 'issue_number': issue_number})
+
+
+# =============================================================================
+# BACKGROUND TASK MONITORING
+# =============================================================================
+
+class TaskStatusAPI(APIView):
+    """
+    GET /api/tasks/<pk>/
+
+    Returns the current status, label, error_message, and timing for a
+    BackgroundTask.  Only accessible within the same org.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        from .models import BackgroundTask  # noqa: PLC0415
+
+        task = get_object_or_404(BackgroundTask, pk=pk)
+        org_uuid = get_user_organization_uuid(request.user)
+        if org_uuid and str(task.organization_uuid) != str(org_uuid):
+            raise PermissionDenied
+
+        return Response(_serialize_task(task))
+
+
+class EpisodeTasksAPI(APIView):
+    """
+    GET /api/episodes/<episode_id>/tasks/
+
+    Lists recent BackgroundTasks for an episode.  The frontend polls this
+    endpoint to discover when a running task completes, fails, or times out.
+
+    Query params:
+        status  — filter by status (e.g. ?status=running)
+        limit   — max tasks to return (default 20)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, episode_id):
+        from .models import BackgroundTask  # noqa: PLC0415
+
+        episode = get_object_or_404(Episode, pk=episode_id)
+        org_uuid = get_user_organization_uuid(request.user)
+        if org_uuid and str(episode.organization_uuid) != str(org_uuid):
+            raise PermissionDenied
+
+        qs = BackgroundTask.objects.filter(episode=episode).order_by('-created_at')
+
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        limit = min(int(request.query_params.get('limit', 20)), 100)
+        tasks = list(qs[:limit])
+
+        return Response({
+            'tasks': [_serialize_task(t) for t in tasks],
+            'has_running': any(t.status == BackgroundTask.STATUS_RUNNING for t in tasks),
+            'has_pending': any(t.status == BackgroundTask.STATUS_PENDING for t in tasks),
+        })
+
+
+class AIStatusAPI(APIView):
+    """
+    GET /api/ai/status/
+
+    Returns the current AI provider configuration and whether it is properly
+    set up.  Helps the user diagnose why AI features return mock responses.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        import os  # noqa: PLC0415
+        from .services.ai import get_ai_config  # noqa: PLC0415
+
+        config = get_ai_config()
+        provider = config.get('provider', 'mock')
+        api_key = config.get('api_key', '')
+
+        # Check DigitalOcean path used by shorts service
+        do_key = os.environ.get('DIGITALOCEAN_LLM_API_KEY', '')
+        do_endpoint = os.environ.get('DIGITALOCEAN_LLM_ENDPOINT', '')
+
+        # Resolve effective provider the same way shorts.py does
+        explicit_provider = os.environ.get('AI_PROVIDER', '').lower()
+        effective_provider = explicit_provider or ('digitalocean' if do_key else 'mock')
+
+        warnings = []
+        if effective_provider == 'mock':
+            warnings.append(
+                "AI is running in MOCK mode — all AI outputs are placeholder text. "
+                "Set AI_PROVIDER=openai and AI_API_KEY, or set DIGITALOCEAN_LLM_API_KEY "
+                "to enable real AI generation."
+            )
+        elif effective_provider == 'openai' and not api_key:
+            warnings.append(
+                "AI_PROVIDER is set to 'openai' but AI_API_KEY is empty. "
+                "AI calls will fail. Add your OpenAI key in Settings → API Keys."
+            )
+        elif effective_provider == 'digitalocean' and not do_key:
+            warnings.append(
+                "AI_PROVIDER is set to 'digitalocean' but DIGITALOCEAN_LLM_API_KEY is empty. "
+                "AI calls will fail."
+            )
+
+        # Check org-level OpenAI key stored in DB
+        org_uuid = get_user_organization_uuid(request.user)
+        db_key_configured = False
+        if org_uuid:
+            from .models import OrgAPIKey  # noqa: PLC0415
+            db_key_configured = OrgAPIKey.objects.filter(
+                organization_uuid=org_uuid,
+                service=OrgAPIKey.SERVICE_OPENAI,
+            ).exists()
+
+        return Response({
+            'effective_provider': effective_provider,
+            'configured_provider': provider,
+            'api_key_set': bool(api_key or do_key),
+            'do_endpoint': do_endpoint or None,
+            'model': config.get('model'),
+            'db_openai_key_configured': db_key_configured,
+            'is_mock': effective_provider == 'mock',
+            'warnings': warnings,
+        })
+
+
+def _serialize_task(task) -> dict:
+    """Serialize a BackgroundTask for API responses."""
+    return {
+        'id': str(task.id),
+        'task_type': task.task_type,
+        'task_type_label': task.get_task_type_display(),
+        'status': task.status,
+        'status_label': task.get_status_display(),
+        'label': task.label,
+        'error_message': task.error_message or None,
+        'started_at': task.started_at.isoformat() if task.started_at else None,
+        'completed_at': task.completed_at.isoformat() if task.completed_at else None,
+        'duration_seconds': task.duration_seconds,
+        'is_terminal': task.is_terminal,
+        'created_at': task.created_at.isoformat(),
+        'episode_id': str(task.episode_id) if task.episode_id else None,
+    }
+
+
+

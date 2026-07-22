@@ -126,12 +126,28 @@
                         Max 50MB. For larger files, upload to cloud storage and use "Link External Media".
                     </p>
                 </div>
+
+                <!-- Progress bar -->
+                <div x-show="uploading" class="w-full bg-slate-700 rounded-full h-2.5">
+                    <div class="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                         :style="'width:' + progress + '%'"></div>
+                </div>
+                <p class="text-sm text-blue-400" x-show="uploading"
+                   x-text="progress < 95 ? 'Uploading\u2026 ' + progress + '%' : 'Saving record\u2026'"></p>
+
+                <!-- Error -->
+                <div x-show="error" class="rounded-md bg-red-950/40 p-3">
+                    <p class="text-sm text-red-400" x-text="error"></p>
+                </div>
+                <!-- Success -->
+                <p class="text-sm text-green-400 font-medium" x-show="success">Upload complete — refreshing…</p>
+
                 <div class="flex justify-end">
                     <button type="submit" class="px-4 py-2 bg-[var(--accent-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--accent-primary-hover)]">
                         Upload
                     </button>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
     {% endif %}
@@ -195,7 +211,7 @@
                         </div>
 
                         {% if user_role in 'admin,host,producer,editor' %}
-                        <form method="post" action="{% url 'production_ledger:media_asset_delete' asset.pk %}" class="ml-2">
+                        <form method="post" action="{% url 'production_ledger:media_delete' asset.pk %}" class="ml-2">
                             {% csrf_token %}
                             <button type="submit" class="text-sm text-[var(--danger)] hover:opacity-80" onclick="return confirm('Delete this asset?')">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -251,4 +267,109 @@
         </div>
     </div>
 </div>
+
+<script>
+function directUpload(presignUrl, confirmUrl, csrfToken) {
+    return {
+        presignUrl: presignUrl,
+        confirmUrl: confirmUrl,
+        csrfToken: csrfToken,
+        assetType: 'video',
+        label: '',
+        file: null,
+        fileName: '',
+        fileSize: 0,
+        contentType: '',
+        uploading: false,
+        progress: 0,
+        error: '',
+        success: false,
+
+        pickFile(e) {
+            const f = e.target.files[0];
+            if (!f) return;
+            this.file = f;
+            this.fileName = f.name;
+            this.fileSize = f.size;
+            this.contentType = f.type || 'application/octet-stream';
+            this.error = '';
+            this.success = false;
+        },
+
+        async upload() {
+            if (!this.file) { this.error = 'Please select a file first.'; return; }
+            this.uploading = true;
+            this.progress = 0;
+            this.error = '';
+
+            try {
+                // Step 1: ask Django for a short-lived presigned PUT URL
+                const presignResp = await fetch(this.presignUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken },
+                    body: JSON.stringify({
+                        filename:     this.fileName,
+                        content_type: this.contentType,
+                        asset_type:   this.assetType,
+                    }),
+                });
+                if (!presignResp.ok) {
+                    const d = await presignResp.json().catch(() => ({}));
+                    throw new Error(d.detail || 'Could not get upload URL — check Spaces configuration.');
+                }
+                const { url, key, public_url } = await presignResp.json();
+                this.progress = 5;
+
+                // Step 2: PUT the file DIRECTLY to DO Spaces — Django is not in this path
+                await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('PUT', url);
+                    xhr.setRequestHeader('Content-Type', this.contentType);
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            this.progress = 5 + Math.round((e.loaded / e.total) * 88);
+                        }
+                    };
+                    xhr.onload = () => {
+                        (xhr.status >= 200 && xhr.status < 300)
+                            ? resolve()
+                            : reject(new Error('Storage upload failed (HTTP ' + xhr.status + '). Check bucket CORS configuration.'));
+                    };
+                    xhr.onerror = () => reject(new Error('Network error during upload to storage.'));
+                    xhr.send(this.file);
+                });
+                this.progress = 95;
+
+                // Step 3: tell Django the upload finished → creates MediaAsset + sets public ACL
+                const confirmResp = await fetch(this.confirmUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.csrfToken },
+                    body: JSON.stringify({
+                        key,
+                        public_url,
+                        asset_type:   this.assetType,
+                        filename:     this.fileName,
+                        file_size:    this.fileSize,
+                        content_type: this.contentType,
+                        label:        this.label || '',
+                    }),
+                });
+                if (!confirmResp.ok) {
+                    const d = await confirmResp.json().catch(() => ({}));
+                    throw new Error(d.detail || 'File reached storage but the database record could not be created.');
+                }
+                this.progress = 100;
+                this.success = true;
+                setTimeout(() => location.reload(), 1500);
+
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.uploading = false;
+            }
+        },
+    };
+}
+</script>
+
 {% endblock %}

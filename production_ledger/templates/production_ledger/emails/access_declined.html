@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Update on your access request</title></head>
+<body style="font-family: sans-serif; color: #1a1a1a; max-width: 560px; margin: 0 auto; padding: 24px;">
+  <h2 style="color: #4b5563;">Update on your ProducerForge access request</h2>
+  <p>Hi{% if access_request.name %} {{ access_request.name }}{% endif %},</p>
+  <p>Thank you for your interest in <strong>ProducerForge</strong>. After review, we're unable to approve your request at this time.</p>
+  <p>If you believe this was a mistake or have questions, please reply to this email.</p>
+  <p style="color:#6b7280;font-size:12px;border-top:1px solid #e5e7eb;padding-top:16px;margin-top:32px;">
+    This email was sent to {{ access_request.email }}.
+  </p>
+</body>
+</html>

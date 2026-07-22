@@ -23,9 +23,11 @@ from .models import (
     EpisodeGuest,
     Guest,
     MediaAsset,
+    PodcastFeedConfig,
     Segment,
     SegmentTemplate,
     Show,
+    ShowJoinRequest,
     ShowNoteDraft,
     ShowNoteFinal,
     ShowRoleAssignment,
@@ -85,6 +87,32 @@ class ShowForm(TailwindFormMixin, forms.ModelForm):
             'default_intro_text': forms.Textarea(attrs={'rows': 3}),
             'default_outro_text': forms.Textarea(attrs={'rows': 3}),
             'brand_primary_color': forms.TextInput(attrs={'type': 'color'}),
+        }
+
+
+class PodcastFeedConfigForm(TailwindFormMixin, forms.ModelForm):
+    """Form for editing a show's podcast RSS feed configuration."""
+
+    # File upload — handled in the view, not saved directly to the model field
+    cover_art = forms.FileField(
+        required=False,
+        label="Cover Art",
+        help_text="JPEG or PNG, min 1400×1400 px, max 3000×3000 px",
+    )
+
+    class Meta:
+        model = PodcastFeedConfig
+        fields = [
+            'feed_title', 'feed_description', 'feed_language',
+            'author_name', 'author_email',
+            'category', 'subcategory',
+            'explicit', 'website_url',
+            # YouTube integration
+            'youtube_client_id', 'youtube_client_secret', 'youtube_default_privacy',
+        ]
+        widgets = {
+            'feed_description': forms.Textarea(attrs={'rows': 3}),
+            'youtube_client_secret': forms.PasswordInput(render_value=True),
         }
 
 
@@ -411,6 +439,13 @@ class MediaAssetLinkForm(TailwindFormMixin, forms.ModelForm):
         self.fields['label'].help_text = "Display name for this link"
         self.fields['platform'].required = False
         self.fields['platform'].help_text = "Auto-detected from URL if left blank"
+
+    def clean_external_url(self):
+        """Normalize URLs so common pasted values (e.g. youtube.com/...) validate."""
+        url = (self.cleaned_data.get('external_url') or '').strip()
+        if url and '://' not in url:
+            url = f'https://{url}'
+        return url
     
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -512,7 +547,10 @@ class ClipMomentForm(TailwindFormMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        if self.instance and self.instance.pk:
+        # Use _state.adding rather than pk check: UUID models always have a
+        # non-None pk even before saving, so pk alone cannot distinguish a new
+        # instance from an existing one.
+        if self.instance and not self.instance._state.adding:
             # Convert ms to time format for display
             self.fields['start_time'].initial = self._ms_to_time(self.instance.start_ms)
             self.fields['end_time'].initial = self._ms_to_time(self.instance.end_ms)
@@ -702,3 +740,32 @@ class ShowRoleAssignmentForm(TailwindFormMixin, forms.ModelForm):
     class Meta:
         model = ShowRoleAssignment
         fields = ['user', 'role']
+
+
+class ShowJoinRequestForm(TailwindFormMixin, forms.ModelForm):
+    """Form for a user requesting role-based access to a show."""
+
+    class Meta:
+        model = ShowJoinRequest
+        fields = ['desired_role', 'message']
+        widgets = {
+            'message': forms.Textarea(attrs={'rows': 3}),
+        }
+
+
+# =============================================================================
+# ACCESS REQUEST & INVITATION FORMS
+# =============================================================================
+
+class AccessRequestForm(TailwindFormMixin, forms.ModelForm):
+    class Meta:
+        from .models import AccessRequest
+        model = AccessRequest
+        fields = ['name', 'email', 'organization', 'message']
+
+
+class InvitationForm(TailwindFormMixin, forms.ModelForm):
+    class Meta:
+        from .models import Invitation
+        model = Invitation
+        fields = ['email', 'name', 'role']

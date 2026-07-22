@@ -28,10 +28,15 @@ from django.views.generic import (
 )
 
 from .constants import (
+    AssetType,
     ApprovalStatus,
     ArtifactType,
     ClipPriority,
+    CommentPlatform,
+    CommentStatus,
     EpisodeStatus,
+    IngestionStatus,
+    MediaPlatform,
     QuoteApproval,
     Role,
     SourceType,
@@ -49,11 +54,13 @@ from .forms import (
     LiveNotesForm,
     MediaAssetLinkForm,
     MediaAssetUploadForm,
+    PodcastFeedConfigForm,
     QuickClipForm,
     SegmentForm,
     SegmentTemplateForm,
     SegmentTemplatePickForm,
     ShowForm,
+    ShowJoinRequestForm,
     ShowNoteDraftForm,
     ShowRoleAssignmentForm,
     TranscriptEditForm,
@@ -62,15 +69,18 @@ from .forms import (
 )
 from .models import (
     AIArtifact,
+    BackgroundTask,
     ChecklistItem,
     ClipMoment,
     Episode,
     EpisodeGuest,
     Guest,
     MediaAsset,
+    PlatformComment,
     Segment,
     SegmentTemplate,
     Show,
+    ShowJoinRequest,
     ShowNoteDraft,
     ShowNoteFinal,
     ShowRoleAssignment,
@@ -92,6 +102,9 @@ from .permissions import (
     has_minimum_role,
     has_role,
 )
+
+
+logger = logging.getLogger(__name__)
 from .services.ai import (
     generate_chapters,
     generate_questions,
@@ -197,6 +210,15 @@ class DashboardView(LoginRequiredMixin, OrganizationMixin, TemplateView):
     """Main dashboard showing shows and recent episodes."""
     
     template_name = 'production_ledger/dashboard.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not request.user.is_superuser:
+            has_non_guest_role = ShowRoleAssignment.objects.filter(
+                user=request.user
+            ).exclude(role='guest').exists()
+            if not has_non_guest_role:
+                return redirect('production_ledger:guest_portal')
+        return super().dispatch(request, *args, **kwargs)
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -330,23 +352,293 @@ class ShowDetailView(LoginRequiredMixin, OrganizationMixin, RoleMixin, DetailVie
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['episodes'] = self.object.episodes.all().order_by('-created_at')
-        context['user_role'] = self.get_user_role(self.object)
+        user_role = self.get_user_role(self.object)
+        context['user_role'] = user_role
+        context['can_request_join'] = user_role is None
+        context['join_request_form'] = ShowJoinRequestForm()
+        context['pending_join_request'] = ShowJoinRequest.objects.filter(
+            show=self.object,
+            user=self.request.user,
+            status='pending',
+        ).first()
         return context
 
 
+class ShowPodcastFeedView(View):
+    """
+    Public RSS feed endpoint: GET /shows/<slug>/feed.xml
+    No login required — podcast apps hit this URL directly.
+    Builds the feed from the database on every request so it's always fresh.
+    """
+
+    def get(self, request, slug):
+        from .models import PodcastFeedConfig, Show  # noqa: PLC0415
+        from .services.distribution import _build_rss_feed, _get_feed_config  # noqa: PLC0415
+        from .constants import DistributionStatus  # noqa: PLC0415
+        from .models import PodcastDistribution  # noqa: PLC0415
+
+        show = get_object_or_404(Show, slug=slug)
+        config = _get_feed_config(show)
+
+        # Make sure feed_public_url points to this view (idempotent)
+        app_feed_url = request.build_absolute_uri(
+            reverse('production_ledger:show_podcast_feed', kwargs={'slug': slug})
+        )
+        if config.feed_public_url != app_feed_url:
+            config.feed_public_url = app_feed_url
+            config.save(update_fields=['feed_public_url'])
+
+        dists = (
+            PodcastDistribution.objects
+            .filter(
+                episode__show=show,
+                status__in=[DistributionStatus.SUBMITTED, DistributionStatus.LIVE],
+            )
+            .select_related('episode', 'episode__show_note_final')
+            .exclude(audio_public_url='')
+            .order_by('episode__publish_date')
+        )
+
+        try:
+            feed_xml = _build_rss_feed(show, config, dists)
+        except Exception as exc:
+            return HttpResponse(f'Feed generation error: {exc}', status=500, content_type='text/plain')
+
+        response = HttpResponse(feed_xml, content_type='application/rss+xml; charset=utf-8')
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+        return response
+
+
+# =============================================================================
+# YOUTUBE OAUTH VIEWS
+# =============================================================================
+
+class YoutubeOAuthStartView(LoginRequiredMixin, OrganizationMixin, View):
+    """
+    Start the YouTube OAuth 2.0 authorisation flow for a Show.
+    Requires ADMIN role.  Stores the OAuth state in the session and redirects
+    the user to Google's consent screen.
+    """
+
+    def get(self, request, pk):
+        from .models import PodcastFeedConfig, Show  # noqa: PLC0415
+        from .services.youtube import build_oauth_flow  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=pk, organization_uuid=self.get_organization_uuid())
+        if not has_minimum_role(request.user, show, Role.ADMIN):
+            raise PermissionDenied("Admin role required to connect YouTube.")
+        try:
+            config, _ = PodcastFeedConfig.objects.get_or_create(
+                show=show,
+                defaults={'organization_uuid': show.organization_uuid},
+            )
+            redirect_uri = request.build_absolute_uri(
+                reverse('production_ledger:youtube_oauth_callback', kwargs={'pk': pk})
+            )
+            flow = build_oauth_flow(config, redirect_uri)
+            auth_url, state = flow.authorization_url(
+                access_type='offline',
+                include_granted_scopes='true',
+                prompt='consent',
+            )
+            request.session['yt_oauth_state'] = state
+            request.session['yt_oauth_show_pk'] = str(pk)
+            return redirect(auth_url)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect('production_ledger:show_edit', pk=pk)
+
+
+class YoutubeOAuthCallbackView(LoginRequiredMixin, OrganizationMixin, View):
+    """
+    Handle the OAuth 2.0 callback from Google, exchange the code for tokens,
+    store the refresh_token in PodcastFeedConfig, and redirect back to Show edit.
+    """
+
+    def get(self, request, pk):
+        from .models import PodcastFeedConfig, Show  # noqa: PLC0415
+        from .services.youtube import build_oauth_flow, fetch_channel_info  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=pk, organization_uuid=self.get_organization_uuid())
+
+        error = request.GET.get('error')
+        if error:
+            messages.error(request, f'YouTube authorisation denied: {error}')
+            return redirect('production_ledger:show_edit', pk=pk)
+
+        state = request.session.get('yt_oauth_state', '')
+        try:
+            config = PodcastFeedConfig.objects.get(show=show)
+            redirect_uri = request.build_absolute_uri(
+                reverse('production_ledger:youtube_oauth_callback', kwargs={'pk': pk})
+            )
+            flow = build_oauth_flow(config, redirect_uri)
+            flow.fetch_token(
+                authorization_response=request.build_absolute_uri(),
+                state=state,
+            )
+            creds = flow.credentials
+            config.youtube_refresh_token = creds.refresh_token or config.youtube_refresh_token
+            config.save(update_fields=['youtube_refresh_token'])
+
+            # Fetch channel info
+            try:
+                channel_id, channel_name = fetch_channel_info(config)
+                config.youtube_channel_id = channel_id
+                config.youtube_channel_name = channel_name
+                config.save(update_fields=['youtube_channel_id', 'youtube_channel_name'])
+            except Exception as exc:
+                logger.warning("Could not fetch YouTube channel info: %s", exc)
+
+            messages.success(
+                request,
+                f'YouTube connected successfully! Channel: {config.youtube_channel_name or config.youtube_channel_id}',
+            )
+        except Exception as exc:
+            logger.exception("YouTube OAuth callback error")
+            messages.error(request, f'YouTube connection failed: {exc}')
+
+        return redirect('production_ledger:show_edit', pk=pk)
+
+
+class YoutubeDisconnectView(LoginRequiredMixin, OrganizationMixin, View):
+    """Clear stored YouTube OAuth credentials for a Show (POST only)."""
+
+    def post(self, request, pk):
+        from .models import PodcastFeedConfig, Show  # noqa: PLC0415
+
+        show = get_object_or_404(Show, pk=pk, organization_uuid=self.get_organization_uuid())
+        if not has_minimum_role(request.user, show, Role.ADMIN):
+            raise PermissionDenied("Admin role required.")
+        try:
+            config = PodcastFeedConfig.objects.get(show=show)
+            config.youtube_refresh_token = ''
+            config.youtube_channel_id = ''
+            config.youtube_channel_name = ''
+            config.save(update_fields=['youtube_refresh_token', 'youtube_channel_id', 'youtube_channel_name'])
+            messages.success(request, 'YouTube disconnected.')
+        except PodcastFeedConfig.DoesNotExist:
+            pass
+        return redirect('production_ledger:show_edit', pk=pk)
+
+
+class IntroPreviewServeView(LoginRequiredMixin, View):
+    """
+    GET /ledger/episodes/<pk>/intro-preview-serve/
+        ?token=<uuid>
+
+    Serve the TTS preview MP3 generated by IntroPreviewAPI.
+    Validates that the session token matches so only the requesting user
+    can access the file.
+    """
+
+    def get(self, request, pk):
+        import tempfile as _tmp  # noqa: PLC0415
+        from pathlib import Path as _Path  # noqa: PLC0415
+        from django.http import FileResponse, Http404  # noqa: PLC0415
+
+        token = request.GET.get('token', '').strip()
+        if not token:
+            raise Http404
+
+        session_key = f'intro_preview_{pk}'
+        stored_token = request.session.get(session_key)
+        if stored_token != token:
+            raise Http404
+
+        # Sanitise: only allow hex-and-dash (UUID format)
+        import re as _re  # noqa: PLC0415
+        if not _re.fullmatch(r'[0-9a-f\-]{36}', token):
+            raise Http404
+
+        serve_dir = _Path(_tmp.gettempdir()) / 'forge_tts_serve'
+        mp3_path = serve_dir / f'{token}.mp3'
+        if not mp3_path.exists():
+            raise Http404
+
+        return FileResponse(
+            open(mp3_path, 'rb'),  # noqa: WPS515
+            content_type='audio/mpeg',
+            as_attachment=False,
+        )
+
+
 class ShowUpdateView(LoginRequiredMixin, OrganizationMixin, RoleMixin, AuditMixin, UpdateView):
-    """Update a show."""
-    
+    """Update a show, including its podcast feed configuration."""
+
     model = Show
     form_class = ShowForm
     template_name = 'production_ledger/show_form.html'
     required_roles = [Role.ADMIN]
-    
+
     def get_object(self):
         obj = super().get_object()
         self.check_permissions(obj)
         return obj
-    
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if 'feed_form' not in context:
+            feed_config = getattr(self.object, 'podcast_feed_config', None)
+            context['feed_form'] = PodcastFeedConfigForm(instance=feed_config)
+        context['existing_cover_art_url'] = getattr(
+            getattr(self.object, 'podcast_feed_config', None), 'cover_art_url', ''
+        )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        form = self.get_form()
+        feed_config = getattr(self.object, 'podcast_feed_config', None)
+        feed_form = PodcastFeedConfigForm(request.POST, request.FILES, instance=feed_config)
+        if form.is_valid() and feed_form.is_valid():
+            response = self.form_valid(form)
+            feed_instance = feed_form.save(commit=False)
+            feed_instance.show = self.object
+            feed_instance.organization_uuid = self.object.organization_uuid
+
+            # Set feed_public_url to the app-served endpoint (always valid,
+            # even before the feed XML has been uploaded to Spaces)
+            app_feed_url = request.build_absolute_uri(
+                reverse('production_ledger:show_podcast_feed', kwargs={'slug': self.object.slug})
+            )
+            feed_instance.feed_public_url = app_feed_url
+
+            # Upload cover art to DO Spaces if a file was provided
+            cover_art_file = request.FILES.get('cover_art')
+            if cover_art_file:
+                from .services import storage as _storage  # noqa: PLC0415
+                allowed = {'image/jpeg', 'image/png', 'image/jpg'}
+                ct = cover_art_file.content_type or ''
+                if ct not in allowed:
+                    messages.warning(request, f'Cover art must be JPEG or PNG (got {ct}); other changes saved.')
+                else:
+                    import mimetypes  # noqa: PLC0415
+                    ext = mimetypes.guess_extension(ct) or '.jpg'
+                    ext = ext.lstrip('.')
+                    art_key = _storage.cover_art_key(
+                        str(self.object.organization_uuid),
+                        self.object.slug,
+                        f"cover.{ext}",
+                    )
+                    try:
+                        art_url = _storage.upload_file(
+                            cover_art_file,
+                            art_key,
+                            content_type=ct,
+                            public=True,
+                        )
+                        feed_instance.cover_art_url = art_url
+                    except Exception:
+                        pass  # Don't block save if Spaces is unavailable
+
+            feed_instance.save()
+            return response
+        return self.render_to_response(
+            self.get_context_data(form=form, feed_form=feed_form)
+        )
+
     def get_success_url(self):
         return reverse('production_ledger:show_detail', kwargs={'pk': self.object.pk})
 
@@ -368,8 +660,14 @@ class ShowRolesView(LoginRequiredMixin, OrganizationMixin, RoleMixin, TemplateVi
         context['role_assignments'] = ShowRoleAssignment.objects.filter(
             show=context['show']
         ).select_related('user')
-        context['form'] = ShowRoleAssignmentForm()
+        form = ShowRoleAssignmentForm()
+        form.fields['user'].queryset = form.fields['user'].queryset.filter(is_active=True).order_by('username')
+        context['form'] = form
         context['roles'] = Role.CHOICES
+        context['pending_join_requests'] = ShowJoinRequest.objects.filter(
+            show=context['show'],
+            status='pending',
+        ).select_related('user')
         return context
     
     def post(self, request, *args, **kwargs):
@@ -567,7 +865,22 @@ class EpisodeStatusView(LoginRequiredMixin, OrganizationMixin, RoleMixin, FormVi
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['episode'] = self.get_episode()
+        episode = self.get_episode()
+        context['episode'] = episode
+
+        allowed = EpisodeStatus.TRANSITIONS.get(episode.status, [])
+        status_labels = dict(EpisodeStatus.CHOICES)
+        context['available_transitions'] = [
+            (status_code, status_labels.get(status_code, status_code.title()))
+            for status_code in allowed
+        ]
+
+        blocked = []
+        if episode.status == EpisodeStatus.EDITED and not episode.is_checklist_complete():
+            blocked.append('Checklist must be completed before moving to Approved.')
+        if episode.status == EpisodeStatus.APPROVED and not episode.is_checklist_complete():
+            blocked.append('Checklist must be completed before moving to Published.')
+        context['blocked_transitions'] = blocked
         return context
     
     def form_valid(self, form):
@@ -616,6 +929,610 @@ class EpisodeOverviewView(EpisodeTabMixin, TemplateView):
     
     template_name = 'production_ledger/tabs/overview.html'
     active_tab = 'overview'
+
+
+class EpisodePublishView(EpisodeTabMixin, TemplateView):
+    """Episode publish and distribution tab."""
+
+    template_name = 'production_ledger/tabs/publish.html'
+    active_tab = 'publish'
+
+    def get_context_data(self, **kwargs):
+        from .models import PodcastDistribution  # noqa: PLC0415
+        from .constants import PodcastPlatform, DistributionStatus  # noqa: PLC0415
+
+        context = super().get_context_data(**kwargs)
+        episode = self.get_episode()
+
+        distributions = {
+            d.platform: d
+            for d in PodcastDistribution.objects.filter(episode=episode)
+        }
+        context['distributions'] = distributions
+
+        # Build per-platform rows with setup instructions
+        platform_rows = []
+        for code, label in PodcastPlatform.CHOICES:
+            dist = distributions.get(code)
+            platform_rows.append({
+                'code': code,
+                'label': label,
+                'dist': dist,
+                'status': dist.status if dist else None,
+                'platform_url': dist.platform_url if dist else '',
+                'audio_url': dist.audio_public_url if dist else '',
+                'submission_url': PodcastPlatform.SUBMISSION_URLS.get(code, ''),
+            })
+        context['platform_rows'] = platform_rows
+        context['DistributionStatus'] = DistributionStatus
+
+        context['audio_assets'] = episode.media_assets.filter(
+            asset_type=AssetType.AUDIO,
+        ).order_by('-created_at')
+        context['video_assets'] = episode.media_assets.filter(
+            asset_type=AssetType.VIDEO,
+        ).order_by('-created_at')
+
+        # Only video assets with a directly-downloadable URL (no YouTube/Vimeo links)
+        from .services.audio_extraction import is_directly_downloadable  # noqa: PLC0415
+        context['extractable_video_assets'] = [
+            a for a in context['video_assets']
+            if a.external_url and is_directly_downloadable(a.external_url)
+        ]
+
+        # Auto-reset any assets that are stuck in PROCESSING/PENDING with a
+        # non-downloadable URL — they can never finish.
+        for asset in context['video_assets']:
+            if (
+                asset.ingestion_status in (IngestionStatus.PENDING, IngestionStatus.PROCESSING)
+                and asset.external_url
+                and not is_directly_downloadable(asset.external_url)
+            ):
+                asset.ingestion_status = IngestionStatus.FAILED
+                asset.error_message = (
+                    "Cannot extract audio from YouTube/Vimeo links. "
+                    "Upload the video file directly instead."
+                )
+                asset.save(update_fields=['ingestion_status', 'error_message'])
+
+        # Auto-expire assets stuck in PENDING/PROCESSING for more than 2 hours.
+        # This handles orphaned rows that survived container restarts and were
+        # not caught by the fix_stuck_tasks startup command.
+        import datetime as _dt  # noqa: PLC0415
+        from django.utils import timezone as _tz  # noqa: PLC0415
+        _stuck_cutoff = _tz.now() - _dt.timedelta(hours=2)
+        _zombie_qs = episode.media_assets.filter(
+            ingestion_status__in=[IngestionStatus.PENDING, IngestionStatus.PROCESSING],
+            created_at__lt=_stuck_cutoff,
+        )
+        if _zombie_qs.exists():
+            _zombie_qs.update(
+                ingestion_status=IngestionStatus.FAILED,
+                error_message=(
+                    'Extraction was interrupted (server restart or timeout). '
+                    'Please retry.'
+                ),
+            )
+            logger.warning(
+                '[publish] Auto-expired stuck processing assets for episode %s (older than 2h)',
+                episode.pk,
+            )
+
+        # Assets currently being processed in background — page will auto-refresh
+        context['processing_assets'] = list(
+            episode.media_assets.filter(
+                ingestion_status__in=[IngestionStatus.PENDING, IngestionStatus.PROCESSING],
+            ).values('pk', 'label', 'ingestion_status')
+        )
+
+        # Recently failed extraction assets — show error banner
+        from django.utils import timezone as _tz  # noqa: PLC0415
+        import datetime as _dt  # noqa: PLC0415
+        context['failed_extraction_assets'] = list(
+            episode.media_assets.filter(
+                ingestion_status=IngestionStatus.FAILED,
+                created_at__gte=_tz.now() - _dt.timedelta(hours=2),
+            ).order_by('-created_at').values('pk', 'label', 'error_message')[:3]
+        )
+
+        try:
+            context['podcast_feed_config'] = episode.show.podcast_feed_config
+        except Exception:
+            context['podcast_feed_config'] = None
+
+        context['can_publish'] = has_minimum_role(self.request.user, episode.show, Role.PRODUCER)
+        context['can_mark_published'] = episode.status == EpisodeStatus.APPROVED and episode.is_checklist_complete()
+
+        # Distributions that have audio (for the episode audio scrubber in Intro Studio)
+        context['audio_distributions'] = [
+            d for d in distributions.values()
+            if d.audio_public_url
+        ]
+
+        # Build Spotify upload pack — title, HTML description (≤4000 chars), guests
+        context['spotify_pack'] = self._build_spotify_pack(episode)
+        return context
+
+    def _build_spotify_pack(self, episode):
+        """Assemble pre-filled metadata for manual Spotify upload."""
+        # Description: show notes markdown converted to plain paragraphs, then guest bios
+        parts = []
+
+        show_note = getattr(episode, 'show_note_final', None)
+        if show_note and show_note.markdown:
+            # Strip markdown headers/bullets to plain text for Spotify's HTML field
+            import re  # noqa: PLC0415
+            plain = re.sub(r'#+\s*', '', show_note.markdown)
+            plain = re.sub(r'\*\*(.+?)\*\*', r'\1', plain)
+            plain = re.sub(r'\*(.+?)\*', r'\1', plain)
+            plain = re.sub(r'!\[.*?\]\(.*?\)', '', plain)  # strip images
+            # Convert [text](url) to <a href="url">text</a>
+            plain = re.sub(r'\[(.+?)\]\((https?://[^\)]+)\)', r'<a href="\2">\1</a>', plain)
+            plain = re.sub(r'^\s*[-*+]\s+', '', plain, flags=re.MULTILINE)
+            parts.append(plain.strip())
+
+        guests = list(
+            episode.episode_guests.select_related('guest').all()
+        )
+        if guests:
+            guest_lines = []
+            for eg in guests:
+                g = eg.guest
+                line = f"<b>{g.name}</b>"
+                if g.title or g.org:
+                    line += f" — {', '.join(filter(None, [g.title, g.org]))}"
+                if g.bio:
+                    line += f"<br>{g.bio}"
+                # Add any web/social links
+                if isinstance(g.links, dict):
+                    link_parts = [f'<a href="{v}">{k}</a>' for k, v in g.links.items() if v and v.startswith('http')]
+                    if link_parts:
+                        line += '<br>' + ' | '.join(link_parts)
+                guest_lines.append(line)
+            parts.append('<br><br>'.join(guest_lines))
+
+        # Add show website if configured
+        try:
+            feed_config = episode.show.podcast_feed_config
+            if feed_config and feed_config.website_url:
+                parts.append(f'Learn more: <a href="{feed_config.website_url}">{feed_config.website_url}</a>')
+        except Exception:
+            pass
+
+        description_html = '\n\n'.join(parts)
+        # Spotify hard cap is 4000 chars
+        if len(description_html) > 4000:
+            description_html = description_html[:3997] + '...'
+
+        return {
+            'title': episode.title,
+            'description_html': description_html,
+            'upload_url': 'https://creators.spotify.com',
+            'char_count': len(description_html),
+        }
+
+    def post(self, request, *args, **kwargs):
+        from .services import storage  # noqa: PLC0415
+        from .services.distribution import build_and_publish_feed, publish_episode_audio  # noqa: PLC0415
+
+        episode = self.get_episode()
+        if not has_minimum_role(request.user, episode.show, Role.PRODUCER):
+            messages.error(request, 'Producer role required to publish audio.')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        action = request.POST.get('action', 'publish_audio')
+
+        if action == 'publish_audio_from_asset':
+            # Publish an already-uploaded audio MediaAsset to all podcast platforms
+            asset_id = request.POST.get('audio_asset_id')
+            if not asset_id:
+                messages.error(request, 'Select an audio asset to publish.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+            try:
+                media_asset = episode.media_assets.get(pk=asset_id, asset_type=AssetType.AUDIO)
+            except Exception:
+                messages.error(request, 'Audio asset not found on this episode.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            audio_url = media_asset.external_url or (media_asset.file.url if media_asset.file else '')
+            if not audio_url:
+                messages.error(request, 'This asset has no accessible URL.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            from .constants import DistributionStatus, PodcastPlatform  # noqa: PLC0415
+            from .models import PodcastDistribution  # noqa: PLC0415
+            from django.utils import timezone as tz  # noqa: PLC0415
+
+            selected_platforms = request.POST.getlist('platforms')
+            if not selected_platforms:
+                selected_platforms = [p for p, _ in PodcastPlatform.CHOICES]
+
+            count = 0
+            for platform in selected_platforms:
+                PodcastDistribution.objects.update_or_create(
+                    episode=episode,
+                    platform=platform,
+                    defaults={
+                        'organization_uuid': episode.organization_uuid,
+                        'audio_public_url': audio_url,
+                        'audio_spaces_key': getattr(media_asset, 'spaces_key', ''),
+                        'audio_file_size': media_asset.file_size or 0,
+                        'audio_duration_seconds': media_asset.duration_seconds or 0,
+                        'audio_content_type': media_asset.content_type or 'audio/mpeg',
+                        'status': DistributionStatus.SUBMITTED,
+                        'submitted_at': tz.now(),
+                        'updated_by': request.user,
+                    },
+                )
+                count += 1
+
+            if request.POST.get('rebuild_feed'):
+                import threading  # noqa: PLC0415
+                import django  # noqa: PLC0415
+
+                from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+                from .models import BackgroundTask as _BT  # noqa: PLC0415
+
+                def _rebuild_feed_fn(show_id, user_id):
+                    from django.contrib.auth import get_user_model  # noqa: PLC0415
+                    from .models import Show as _Show  # noqa: PLC0415
+                    from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
+                    _build(_Show.objects.get(pk=show_id), user=get_user_model().objects.get(pk=user_id))
+
+                _rbt(
+                    task_type=_BT.TASK_FEED_REBUILD,
+                    label=f'RSS feed rebuild after publish',
+                    fn=_rebuild_feed_fn,
+                    episode=episode,
+                    created_by=request.user,
+                    show_id=str(episode.show.pk),
+                    user_id=request.user.pk,
+                )
+                messages.info(request, 'Distributions updated. RSS feed rebuild started in the background.')
+            else:
+                messages.success(request, f'Audio asset published to {count} platform record(s).')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        if action == 'publish_video_from_asset':
+            # Just mark an existing video asset as the published video (no re-upload)
+            asset_id = request.POST.get('video_asset_id')
+            if not asset_id:
+                messages.error(request, 'Select a video asset.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+            try:
+                media_asset = episode.media_assets.get(pk=asset_id, asset_type=AssetType.VIDEO)
+            except Exception:
+                messages.error(request, 'Video asset not found on this episode.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+            media_asset.label = request.POST.get('label') or media_asset.label or 'Published Video'
+            media_asset.save(update_fields=['label'])
+            messages.success(request, f'Video asset "{media_asset.label}" marked as published.')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        if action == 'publish_video':
+            video_file = request.FILES.get('video')
+            if not video_file:
+                messages.error(request, 'Video file is required.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            try:
+                video_key = storage.episode_video_key(
+                    str(episode.organization_uuid),
+                    str(episode.id),
+                    video_file.name,
+                )
+                video_url = storage.upload_file(
+                    video_file,
+                    video_key,
+                    content_type=video_file.content_type or 'video/mp4',
+                    public=True,
+                    extra_metadata={'episode-id': str(episode.id)},
+                )
+
+                MediaAsset.objects.create(
+                    episode=episode,
+                    organization_uuid=episode.organization_uuid,
+                    asset_type=AssetType.VIDEO,
+                    source_type=SourceType.EXTERNAL_LINK,
+                    platform=MediaPlatform.DIRECT_URL,
+                    external_url=video_url,
+                    label=request.POST.get('label', '') or f"Published Video - {video_file.name}",
+                    filename=video_file.name,
+                    content_type=video_file.content_type or 'video/mp4',
+                    file_size=video_file.size,
+                    ingestion_status=IngestionStatus.READY,
+                    ingested_by=request.user,
+                    created_by=request.user,
+                    updated_by=request.user,
+                )
+            except Exception as exc:
+                messages.error(request, f'Video publish failed: {exc}')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            messages.success(request, 'Video uploaded and published as a media asset.')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        if action == 'publish_to_youtube':
+            from .services.youtube import upload_episode_to_youtube  # noqa: PLC0415
+            from .models import PodcastDistribution  # noqa: PLC0415
+            from .constants import PodcastPlatform, DistributionStatus  # noqa: PLC0415
+
+            asset_id = request.POST.get('video_asset_id')
+            if not asset_id:
+                messages.error(request, 'Select a video asset to upload to YouTube.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            try:
+                video_asset = episode.media_assets.get(pk=asset_id, asset_type=AssetType.VIDEO)
+            except Exception:
+                messages.error(request, 'Video asset not found on this episode.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            if not video_asset.external_url:
+                messages.error(request, 'Video asset has no public URL. Upload the video to storage first.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            try:
+                feed_config = episode.show.podcast_feed_config
+            except Exception:
+                messages.error(request, 'Configure the Podcast RSS Feed settings for this show before uploading to YouTube.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            privacy = request.POST.get('youtube_privacy') or feed_config.youtube_default_privacy or 'public'
+
+            try:
+                video_id = upload_episode_to_youtube(episode, video_asset.external_url, feed_config, privacy=privacy)
+            except ValueError as exc:
+                messages.error(request, str(exc))
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+            except Exception as exc:
+                logger.exception("YouTube upload failed for episode %s", episode.pk)
+                messages.error(request, f'YouTube upload failed: {exc}')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            youtube_url = f'https://www.youtube.com/watch?v={video_id}'
+            dist, _ = PodcastDistribution.objects.get_or_create(
+                episode=episode,
+                platform=PodcastPlatform.YOUTUBE,
+                defaults={'organization_uuid': episode.organization_uuid},
+            )
+            dist.status = DistributionStatus.LIVE
+            dist.platform_url = youtube_url
+            dist.save(update_fields=['status', 'platform_url'])
+
+            messages.success(request, f'Video uploaded to YouTube: {youtube_url}')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        if action == 'extract_audio_from_video':
+            from .services.audio_extraction import cleanup_work_dir, extract_audio_from_video, is_directly_downloadable  # noqa: PLC0415
+            from .services.distribution import publish_episode_audio, build_and_publish_feed  # noqa: PLC0415
+            import threading  # noqa: PLC0415
+            import django  # noqa: PLC0415
+
+            asset_id = request.POST.get('video_asset_id')
+            if not asset_id:
+                messages.error(request, 'Select a video asset to extract audio from.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            try:
+                video_asset = episode.media_assets.get(pk=asset_id, asset_type=AssetType.VIDEO)
+            except Exception:
+                messages.error(request, 'Video asset not found on this episode.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            if not video_asset.external_url:
+                messages.error(request, 'Video asset has no public URL.')
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            if not is_directly_downloadable(video_asset.external_url):
+                messages.error(
+                    request,
+                    'YouTube and Vimeo links cannot be downloaded for audio extraction. '
+                    'Upload the video file directly to the Media Library first, then extract from that.'
+                )
+                return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+            add_intro = request.POST.get('add_intro') == 'on'
+            intro_text = request.POST.get('intro_text', '').strip() or None
+            bitrate = request.POST.get('audio_bitrate') or '192k'
+
+            # Optional: use a previewed intro file (token stored in session)
+            intro_audio_path = None
+            preview_token = request.POST.get('intro_preview_token', '').strip()
+            if add_intro and preview_token:
+                import re as _re  # noqa: PLC0415
+                import tempfile as _tmp  # noqa: PLC0415
+                from pathlib import Path as _Path  # noqa: PLC0415
+                if _re.fullmatch(r'[0-9a-f\-]{36}', preview_token):
+                    session_key = f'intro_preview_{episode.pk}'
+                    if request.session.get(session_key) == preview_token:
+                        candidate = _Path(_tmp.gettempdir()) / 'forge_tts_serve' / f'{preview_token}.mp3'
+                        if candidate.exists():
+                            intro_audio_path = candidate
+
+            intro_voice = request.POST.get('intro_voice') or 'coral'
+            intro_model = request.POST.get('intro_model') or 'gpt-4o-mini-tts'
+            insert_at_seconds = float(request.POST.get('intro_offset_seconds', '0') or '0')
+
+            # Create a PENDING audio asset immediately so we can track progress.
+            # The actual extraction runs in a background thread — this lets us
+            # return a redirect in <1 second, avoiding DigitalOcean's 60s LB timeout.
+            intro_label = " + intro" if add_intro else ""
+            pending_asset = MediaAsset.objects.create(
+                episode=episode,
+                organization_uuid=episode.organization_uuid,
+                asset_type=AssetType.AUDIO,
+                source_type=SourceType.API_IMPORT,
+                label=f"Extracting audio{intro_label} from {video_asset.label or 'video'}…",
+                ingestion_status=IngestionStatus.PENDING,
+                ingested_by=request.user,
+            )
+
+            # Capture everything the thread needs — no request/response objects
+            _thread_kwargs = dict(
+                asset_pk=str(pending_asset.pk),
+                episode_pk=str(episode.pk),
+                video_url=video_asset.external_url,
+                episode_title=episode.title,
+                show_name=episode.show.name,
+                add_intro=add_intro,
+                intro_text=intro_text,
+                intro_audio_path=intro_audio_path,
+                insert_at_seconds=insert_at_seconds,
+                intro_voice=intro_voice,
+                intro_model=intro_model,
+                bitrate=bitrate,
+                user_pk=request.user.pk,
+            )
+
+            def _run_extraction(
+                asset_pk, episode_pk, video_url, episode_title, show_name,
+                add_intro, intro_text, intro_audio_path, insert_at_seconds,
+                intro_voice, intro_model, bitrate, user_pk,
+            ):
+                from django.contrib.auth import get_user_model  # noqa: PLC0415
+                from .models import MediaAsset as _MA, Episode as _Ep  # noqa: PLC0415
+                from .constants import IngestionStatus as _IS  # noqa: PLC0415
+                from .services.audio_extraction import cleanup_work_dir as _cleanup, extract_audio_from_video as _extract  # noqa: PLC0415
+                from .services.distribution import publish_episode_audio as _pub, build_and_publish_feed as _feed  # noqa: PLC0415
+
+                audio_path = None
+                asset = None
+                try:
+                    asset = _MA.objects.get(pk=asset_pk)
+                    asset.ingestion_status = _IS.PROCESSING
+                    asset.save(update_fields=['ingestion_status'])
+
+                    audio_path, duration = _extract(
+                        video_url=video_url,
+                        episode_title=episode_title,
+                        show_name=show_name,
+                        add_intro=add_intro,
+                        intro_text=intro_text,
+                        intro_audio_path=intro_audio_path,
+                        insert_at_seconds=insert_at_seconds,
+                        intro_voice=intro_voice,
+                        intro_model=intro_model,
+                        bitrate=bitrate,
+                    )
+
+                    ep = _Ep.objects.get(pk=episode_pk)
+                    User = get_user_model()
+                    user = User.objects.get(pk=user_pk)
+
+                    with open(audio_path, 'rb') as af:
+                        result = _pub(ep, af, f"{episode_title}.mp3".replace('/', '-'),
+                                      duration_seconds=duration, user=user)
+
+                    # Update the pending asset with the real URL/duration from publish result
+                    dist_list = result.get('distributions', [])
+                    public_url = dist_list[0].audio_public_url if dist_list else None
+                    _intro = " (with intro)" if add_intro else ""
+                    asset.ingestion_status = _IS.READY
+                    asset.duration_seconds = int(duration)
+                    asset.label = f"Extracted audio{_intro} ({int(duration)}s)"
+                    if public_url:
+                        asset.external_url = public_url
+                    asset.save(update_fields=['ingestion_status', 'duration_seconds', 'label', 'external_url'])
+
+                    try:
+                        _feed(ep.show, user=user)
+                    except Exception as feed_exc:
+                        logger.warning("Feed rebuild failed after audio extraction: %s", feed_exc)
+
+                except Exception as exc:
+                    # Mark the asset as failed so the UI polling loop exits
+                    # instead of spinning forever showing "X minutes to complete".
+                    try:
+                        if asset is None:
+                            asset = _MA.objects.get(pk=asset_pk)
+                        asset.ingestion_status = _IS.FAILED
+                        asset.error_message = str(exc)[:2000]
+                        asset.save(update_fields=['ingestion_status', 'error_message'])
+                    except Exception as save_exc:
+                        logger.error(
+                            "Failed to mark asset %s as failed after extraction error: %s",
+                            asset_pk, save_exc,
+                        )
+                    raise  # re-raise so the watchdog records it on BackgroundTask too
+
+                finally:
+                    if audio_path:
+                        _cleanup(audio_path)
+
+            from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+            from .models import BackgroundTask as _BT  # noqa: PLC0415
+            _rbt(
+                task_type=_BT.TASK_AUDIO_EXTRACT,
+                label=f'Audio extraction: {episode.title[:50]}',
+                fn=_run_extraction,
+                episode=episode,
+                created_by=request.user,
+                timeout=900,
+                **_thread_kwargs,
+            )
+
+            messages.info(
+                request,
+                'Audio extraction started. The page will update automatically when it\'s ready '
+                '(usually 2–5 minutes depending on video length).',
+            )
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        audio_file = request.FILES.get('audio')
+        if not audio_file:
+            messages.error(request, 'Audio file is required.')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        duration_seconds = int(request.POST.get('duration_seconds', 0) or 0)
+        rebuild_feed = request.POST.get('rebuild_feed', 'true').lower() != 'false'
+
+        try:
+            result = publish_episode_audio(
+                episode,
+                audio_file,
+                audio_file.name,
+                duration_seconds=duration_seconds,
+                user=request.user,
+            )
+        except Exception as exc:
+            messages.error(request, f'Audio publish failed: {exc}')
+            return redirect('production_ledger:episode_publish', pk=episode.pk)
+
+        if rebuild_feed:
+            from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+            from .models import BackgroundTask as _BT  # noqa: PLC0415
+
+            def _rebuild_feed_fn2(show_id, user_id):
+                from django.contrib.auth import get_user_model  # noqa: PLC0415
+                from .models import Show as _Show  # noqa: PLC0415
+                from .services.distribution import build_and_publish_feed as _build  # noqa: PLC0415
+                _build(_Show.objects.get(pk=show_id), user=get_user_model().objects.get(pk=user_id))
+
+            _rbt(
+                task_type=_BT.TASK_FEED_REBUILD,
+                label='RSS feed rebuild after audio upload',
+                fn=_rebuild_feed_fn2,
+                episode=episode,
+                created_by=request.user,
+                show_id=str(episode.show.pk),
+                user_id=request.user.pk,
+            )
+            messages.info(request, 'Audio uploaded. RSS feed rebuild started in the background.')
+        else:
+            messages.success(
+                request,
+                f"Audio published to {len(result['distributions'])} platform records.",
+            )
+
+        if episode.status == EpisodeStatus.APPROVED and episode.is_checklist_complete():
+            try:
+                episode.transition_to(EpisodeStatus.PUBLISHED, user=request.user)
+            except Exception:
+                # Keep publishing successful even if status transition is blocked.
+                pass
+
+        return redirect('production_ledger:episode_publish', pk=episode.pk)
 
 
 class EpisodeSegmentsView(EpisodeTabMixin, TemplateView):
@@ -729,7 +1646,19 @@ class EpisodeMediaView(EpisodeTabMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['media_assets'] = self.get_episode().media_assets.all().order_by('asset_type', '-created_at')
+        try:
+            context['media_assets'] = self.get_episode().media_assets.all().order_by('asset_type', '-created_at')
+        except (OperationalError, ProgrammingError) as exc:
+            logger.exception(
+                'Episode media tab query failed for episode=%s; rendering empty state',
+                getattr(self.get_episode(), 'pk', None),
+            )
+            context['media_assets'] = []
+            messages.error(
+                self.request,
+                'Media assets are temporarily unavailable due to a database schema mismatch. '
+                'The page loaded in safe mode.',
+            )
         context['upload_form'] = MediaAssetUploadForm()
         context['link_form'] = MediaAssetLinkForm()
         return context
@@ -743,20 +1672,69 @@ class EpisodeMediaView(EpisodeTabMixin, TemplateView):
         
         # Determine which form was submitted based on form_type or file presence
         form_type = request.POST.get('form_type', '')
+        is_upload = form_type == 'upload' or 'file' in request.FILES
         
-        if form_type == 'upload' or 'file' in request.FILES:
+        if is_upload:
             form = MediaAssetUploadForm(request.POST, request.FILES)
         else:
             form = MediaAssetLinkForm(request.POST)
         
         if form.is_valid():
-            asset = form.save(commit=False)
-            asset.episode = episode
-            asset.organization_uuid = episode.organization_uuid
-            asset.ingested_by = request.user
-            asset.created_by = request.user
-            asset.save()
-            messages.success(request, 'Media asset added!')
+            try:
+                if is_upload:
+                    from .services import storage  # noqa: PLC0415
+
+                    uploaded_file = form.cleaned_data['file']
+                    original_name = os.path.basename(uploaded_file.name)
+                    safe_name = original_name.replace(' ', '_')
+                    object_key = storage.media_asset_key(
+                        str(episode.organization_uuid),
+                        str(episode.pk),
+                        uuid.uuid4().hex[:8],
+                        safe_name,
+                    )
+
+                    public_url = storage.upload_file(
+                        uploaded_file,
+                        object_key,
+                        content_type=uploaded_file.content_type or 'application/octet-stream',
+                        public=True,
+                        extra_metadata={'episode-id': str(episode.pk)},
+                    )
+
+                    asset = MediaAsset(
+                        episode=episode,
+                        organization_uuid=episode.organization_uuid,
+                        asset_type=form.cleaned_data['asset_type'],
+                        source_type=SourceType.EXTERNAL_LINK,
+                        external_url=public_url,
+                        label=form.cleaned_data.get('label') or os.path.splitext(original_name)[0],
+                        filename=original_name,
+                        content_type=uploaded_file.content_type or 'application/octet-stream',
+                        file_size=uploaded_file.size,
+                        ingestion_status=IngestionStatus.READY,
+                        ingested_by=request.user,
+                        created_by=request.user,
+                    )
+                    asset.save()
+                else:
+                    asset = form.save(commit=False)
+                    asset.episode = episode
+                    asset.organization_uuid = episode.organization_uuid
+                    asset.ingested_by = request.user
+                    asset.created_by = request.user
+                    asset.save()
+                messages.success(request, 'Media asset added!')
+            except (OperationalError, ProgrammingError):
+                logger.exception('Media asset save failed for episode=%s', episode.pk)
+                messages.error(
+                    request,
+                    'Could not save this media asset because the database schema is out of sync. '
+                    'Please re-run Producer migrations.',
+                )
+            except Exception:
+                logger.exception('Media upload failed for episode=%s', episode.pk)
+                messages.error(request, 'Upload failed while transferring to cloud storage.')
         else:
             for field, errors in form.errors.items():
                 for error in errors:
@@ -773,16 +1751,52 @@ class EpisodeTranscriptView(EpisodeTabMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['transcripts'] = self.get_episode().transcripts.all().order_by('-revision')
+        episode = self.get_episode()
+        context['transcripts'] = episode.transcripts.all().order_by('-revision')
+        context['latest_media_asset'] = episode.media_assets.filter(
+            asset_type__in=[AssetType.VIDEO, AssetType.AUDIO]
+        ).order_by('-created_at').first()
         context['upload_form'] = TranscriptUploadForm()
         context['paste_form'] = TranscriptPasteForm()
         return context
     
     def post(self, request, *args, **kwargs):
         episode = self.get_episode()
+        action = request.POST.get('action', '')
         
         if not can_manage_transcripts(request.user, episode):
             messages.error(request, 'You do not have permission to manage transcripts.')
+            return redirect('production_ledger:episode_transcript', pk=episode.pk)
+
+        if action == 'auto_transcribe':
+            import threading  # noqa: PLC0415
+            from .services import transcription as transcription_svc  # noqa: PLC0415
+
+            media_asset = episode.media_assets.filter(
+                asset_type__in=[AssetType.VIDEO, AssetType.AUDIO]
+            ).order_by('-created_at').first()
+            if not media_asset:
+                messages.error(request, 'No media asset found. Upload audio/video in the Media tab first.')
+                return redirect('production_ledger:episode_transcript', pk=episode.pk)
+
+            from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+            from .models import BackgroundTask as _BT  # noqa: PLC0415
+
+            def _run_transcription(asset_pk, user):
+                from .models import MediaAsset  # noqa: PLC0415
+                asset = MediaAsset.objects.get(pk=asset_pk)
+                transcription_svc.transcribe_media_asset(asset, user=user)
+
+            _rbt(
+                task_type=_BT.TASK_TRANSCRIPTION,
+                label=f'Auto-transcribe: {media_asset.label or media_asset.filename or str(media_asset.pk)[:8]}',
+                fn=_run_transcription,
+                episode=episode,
+                created_by=request.user,
+                asset_pk=media_asset.pk,
+                user=request.user,
+            )
+            messages.success(request, 'Transcription started in the background — refresh this page in a moment to see the result.')
             return redirect('production_ledger:episode_transcript', pk=episode.pk)
         
         # Determine which form was submitted
@@ -828,16 +1842,93 @@ class EpisodeClipsView(EpisodeTabMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['clips'] = self.get_episode().clip_moments.all().order_by('start_ms')
+        episode = self.get_episode()
+        context['clips'] = episode.clip_moments.all().order_by('start_ms')
+        context['video_shorts'] = episode.video_shorts.all().order_by('start_ms')
+        context['latest_transcript'] = episode.transcripts.order_by('-revision').first()
         context['clip_form'] = ClipMomentForm()
         context['priorities'] = ClipPriority.CHOICES
+        # Running identification task — used to render the progress banner.
+        # Wrapped in try/except because the BackgroundTask table schema on some
+        # live deployments may be missing the episode_id FK column if the table
+        # was created outside Django's migration system.
+        try:
+            context['running_identify_task'] = (
+                BackgroundTask.objects.filter(
+                    episode=episode,
+                    task_type=BackgroundTask.TASK_SHORT_IDENTIFY,
+                    status__in=[BackgroundTask.STATUS_PENDING, BackgroundTask.STATUS_RUNNING],
+                ).order_by('-created_at').first()
+            )
+        except Exception:
+            logger.warning(
+                'BackgroundTask query failed in EpisodeClipsView — table may have schema drift',
+                exc_info=True,
+            )
+            context['running_identify_task'] = None
         return context
     
     def post(self, request, *args, **kwargs):
         episode = self.get_episode()
+        action = request.POST.get('action', '')
         
         if not can_manage_clips(request.user, episode):
             messages.error(request, 'You do not have permission to manage clips.')
+            return redirect('production_ledger:episode_clips', pk=episode.pk)
+
+        if action == 'auto_identify':
+            import threading  # noqa: PLC0415
+            from .services import transcription as transcription_svc  # noqa: PLC0415
+            from .services.shorts import identify_and_queue_shorts  # noqa: PLC0415
+
+            transcript = episode.transcripts.order_by('-revision').first()
+            if transcript is None:
+                media_asset = episode.media_assets.filter(
+                    asset_type__in=[AssetType.VIDEO, AssetType.AUDIO]
+                ).order_by('-created_at').first()
+                if not media_asset:
+                    messages.error(request, 'No transcript or media found. Upload media first.')
+                    return redirect('production_ledger:episode_clips', pk=episode.pk)
+
+                from .services.tasks import run_background_task as _rbt  # noqa: PLC0415
+                from .models import BackgroundTask as _BT  # noqa: PLC0415
+
+                def _transcribe_then_identify_fn(asset_pk, ep_pk, aspect_ratio, max_clips, user):
+                    import django.db  # noqa: PLC0415
+                    from .models import MediaAsset, Episode  # noqa: PLC0415
+                    asset = MediaAsset.objects.get(pk=asset_pk)
+                    tr = transcription_svc.transcribe_media_asset(asset, user=user)
+                    ep = Episode.objects.get(pk=ep_pk)
+                    identify_and_queue_shorts(ep, transcript=tr, aspect_ratio=aspect_ratio,
+                                              max_clips=max_clips, user=user)
+
+                _rbt(
+                    task_type=_BT.TASK_SHORT_IDENTIFY,
+                    label=f'Transcribe + identify clips: {episode.title[:50]}',
+                    fn=_transcribe_then_identify_fn,
+                    episode=episode,
+                    created_by=request.user,
+                    timeout=900,
+                    asset_pk=media_asset.pk,
+                    ep_pk=episode.pk,
+                    aspect_ratio=request.POST.get('aspect_ratio', '9:16'),
+                    max_clips=int(request.POST.get('max_clips', 5) or 5),
+                    user=request.user,
+                )
+                messages.info(request, 'No transcript found — transcribing and identifying clips in the background. Refresh in a moment.')
+                return redirect('production_ledger:episode_clips', pk=episode.pk)
+
+            try:
+                shorts = identify_and_queue_shorts(
+                    episode,
+                    transcript=transcript,
+                    aspect_ratio=request.POST.get('aspect_ratio', '9:16'),
+                    max_clips=int(request.POST.get('max_clips', 5) or 5),
+                    user=request.user,
+                )
+                messages.success(request, f'AI identified {len(shorts)} clip moments from the latest transcript/media.')
+            except Exception as exc:
+                messages.error(request, f'AI clip identification failed: {exc}')
             return redirect('production_ledger:episode_clips', pk=episode.pk)
         
         form = ClipMomentForm(request.POST)
@@ -991,17 +2082,39 @@ class EpisodeChecklistView(EpisodeTabMixin, TemplateView):
 
 class ControlRoomView(EpisodeTabMixin, TemplateView):
     """Control room for live production."""
-    
-    template_name = 'production_ledger/control_room.html'
+
     active_tab = 'control_room'
     required_roles = [Role.ADMIN, Role.HOST, Role.PRODUCER]
-    
+
+    def get_template_names(self):
+        """Return different template based on mode."""
+        mode = self.request.GET.get('mode', 'dashboard')
+        view_type = self.request.GET.get('view', 'host')
+
+        if view_type == 'guest':
+            return ['production_ledger/control_room_guest.html']
+        elif mode == 'live':
+            return ['production_ledger/control_room_live.html']
+        else:
+            return ['production_ledger/control_room.html']
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         episode = self.get_episode()
-        context['segments'] = episode.segments.all().order_by('order')
+        segments = episode.segments.all().order_by('order')
+
+        context['segments'] = segments
         context['live_notes_form'] = LiveNotesForm(instance=episode)
         context['quick_clip_form'] = QuickClipForm()
+        context['guests'] = episode.episode_guests.select_related('guest').all()
+
+        # Calculate progress
+        total_segments = segments.count()
+        completed_segments = segments.filter(is_completed=True).count()
+        context['total_segments'] = total_segments
+        context['completed_segments'] = completed_segments
+        context['progress_percentage'] = int((completed_segments / total_segments * 100) if total_segments > 0 else 0)
+
         return context
 
     def post(self, request, *args, **kwargs):

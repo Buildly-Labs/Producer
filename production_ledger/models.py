@@ -19,17 +19,23 @@ from .constants import (
     AssetType,
     ClipPriority,
     DEFAULT_CHECKLIST_ITEMS,
+    DistributionStatus,
     EpisodeStatus,
     GuestRole,
     IngestionStatus,
     MediaPlatform,
+    PodcastPlatform,
     QuoteApproval,
     RecordingContext,
     Role,
     SegmentOwner,
+    ShortAspectRatio,
+    ShortStatus,
     SourceType,
     TranscriptFormat,
     TranscriptSourceType,
+    CommentPlatform,
+    CommentStatus,
 )
 
 
@@ -425,6 +431,50 @@ class ShowRoleAssignment(models.Model):
         return f"{self.user} - {self.role} on {self.show.name}"
 
 
+class ShowJoinRequest(models.Model):
+    """
+    Request by a signed-in user to join a specific show with a target role.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    show = models.ForeignKey(Show, on_delete=models.CASCADE, related_name='join_requests')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='show_join_requests',
+    )
+    desired_role = models.CharField(max_length=20, choices=Role.CHOICES, default=Role.GUEST)
+    message = models.TextField(blank=True, default='')
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('declined', 'Declined'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_show_join_requests',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Show Join Request'
+        verbose_name_plural = 'Show Join Requests'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['show', 'status']),
+            models.Index(fields=['user', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.user} -> {self.show.name} ({self.desired_role}, {self.status})"
+
+
 class EpisodeRoleOverride(models.Model):
     """
     Optional: Override a user's role for a specific episode.
@@ -750,13 +800,13 @@ class MediaAsset(BaseModel):
     def detect_platform_from_url(cls, url):
         """Auto-detect platform from URL patterns."""
         if not url:
-            return MediaPlatform.OTHER
+            return MediaPlatform.DIRECT_URL
         url_lower = url.lower()
         for platform, patterns in MediaPlatform.URL_PATTERNS.items():
             for pattern in patterns:
                 if pattern in url_lower:
                     return platform
-        return MediaPlatform.OTHER
+        return MediaPlatform.DIRECT_URL
 
     def compute_checksum(self):
         """Compute SHA256 checksum of the file."""
@@ -1007,6 +1057,230 @@ class ShowNoteDraft(BaseModel):
 
 
 # =============================================================================
+# PODCAST FEED CONFIG (per-Show)
+# =============================================================================
+
+class PodcastFeedConfig(BaseModel):
+    """
+    Podcast RSS feed configuration for a Show.
+    One per show. The generated RSS feed is hosted on DO Spaces and submitted
+    to podcast directories.
+    """
+    show = models.OneToOneField(Show, on_delete=models.CASCADE, related_name='podcast_feed_config')
+
+    # Feed metadata
+    feed_title = models.CharField(max_length=255, blank=True, help_text="Podcast title (defaults to show name)")
+    feed_description = models.TextField(blank=True, help_text="Podcast description / summary")
+    feed_language = models.CharField(max_length=10, default='en', help_text="BCP-47 language code, e.g. 'en'")
+    author_name = models.CharField(max_length=255, blank=True)
+    author_email = models.EmailField(blank=True)
+    category = models.CharField(max_length=100, default='Technology', help_text="iTunes top-level category")
+    subcategory = models.CharField(max_length=100, blank=True)
+    explicit = models.BooleanField(default=False)
+    website_url = models.URLField(blank=True)
+
+    # Cover art (DO Spaces public URL)
+    cover_art_url = models.URLField(blank=True, help_text="Podcast cover art (min 1400×1400 px, max 3000×3000 px)")
+
+    # DO Spaces path where feed XML is stored
+    feed_spaces_key = models.CharField(max_length=500, blank=True, help_text="Key/path within the DO Spaces bucket")
+    feed_public_url = models.URLField(blank=True, help_text="Public CDN URL of the RSS feed XML")
+
+    # Timestamps
+    feed_last_built = models.DateTimeField(null=True, blank=True, help_text="When the feed was last re-built and uploaded")
+
+    # YouTube integration — OAuth 2.0 credentials (stored per-show)
+    youtube_client_id = models.CharField(max_length=255, blank=True, help_text="Google OAuth client ID")
+    youtube_client_secret = models.CharField(max_length=255, blank=True, help_text="Google OAuth client secret")
+    youtube_refresh_token = models.TextField(blank=True, help_text="Stored OAuth refresh token after connecting YouTube")
+    youtube_channel_id = models.CharField(max_length=100, blank=True, help_text="YouTube channel ID (auto-populated on connect)")
+    youtube_channel_name = models.CharField(max_length=255, blank=True, help_text="YouTube channel display name")
+    youtube_default_privacy = models.CharField(
+        max_length=20,
+        choices=[('public', 'Public'), ('unlisted', 'Unlisted'), ('private', 'Private')],
+        default='public',
+    )
+
+    class Meta:
+        verbose_name = "Podcast Feed Config"
+        verbose_name_plural = "Podcast Feed Configs"
+
+    def __str__(self):
+        return f"Feed config for {self.show.name}"
+
+    @property
+    def youtube_connected(self):
+        return bool(self.youtube_refresh_token)
+
+
+# =============================================================================
+# PODCAST DISTRIBUTION (per-Episode, per-Platform)
+# =============================================================================
+
+class PodcastDistribution(BaseModel):
+    """
+    Tracks the distribution status of an episode on each podcast platform.
+    When the episode RSS item is published and the feed is re-built, each
+    platform entry moves to SUBMITTED then eventually LIVE.
+    """
+    episode = models.ForeignKey(Episode, on_delete=models.CASCADE, related_name='distributions')
+    platform = models.CharField(max_length=30, choices=PodcastPlatform.CHOICES)
+
+    status = models.CharField(
+        max_length=20,
+        choices=DistributionStatus.CHOICES,
+        default=DistributionStatus.PENDING,
+    )
+
+    # Direct episode audio on DO Spaces
+    audio_spaces_key = models.CharField(max_length=500, blank=True, help_text="DO Spaces key for the episode audio file")
+    audio_public_url = models.URLField(blank=True, help_text="Public URL of the episode audio on DO Spaces / CDN")
+    audio_file_size = models.BigIntegerField(null=True, blank=True, help_text="Audio file size in bytes")
+    audio_duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    audio_content_type = models.CharField(max_length=50, default='audio/mpeg')
+
+    # Platform-specific identifiers returned after submission
+    platform_episode_id = models.CharField(max_length=255, blank=True)
+    platform_url = models.URLField(blank=True, help_text="URL of this episode on the platform once live")
+
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    went_live_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = "Podcast Distribution"
+        verbose_name_plural = "Podcast Distributions"
+        unique_together = [['episode', 'platform']]
+        indexes = [
+            models.Index(fields=['organization_uuid', 'episode']),
+            models.Index(fields=['organization_uuid', 'platform', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.episode.title} → {self.get_platform_display()} ({self.status})"
+
+    def mark_submitted(self):
+        self.status = DistributionStatus.SUBMITTED
+        self.submitted_at = timezone.now()
+        self.save()
+
+    def mark_live(self, platform_url='', platform_episode_id=''):
+        self.status = DistributionStatus.LIVE
+        self.went_live_at = timezone.now()
+        if platform_url:
+            self.platform_url = platform_url
+        if platform_episode_id:
+            self.platform_episode_id = platform_episode_id
+        self.save()
+
+
+# =============================================================================
+# VIDEO SHORT
+# =============================================================================
+
+class VideoShort(BaseModel):
+    """
+    A rendered short-form video clip derived from an episode (for TikTok, Reels, Shorts, etc.).
+    Each short corresponds to a ClipMoment but also carries the rendered file stored in DO Spaces.
+    Shareable links are generated from the CDN URL.
+    """
+    episode = models.ForeignKey(Episode, on_delete=models.CASCADE, related_name='video_shorts')
+    clip_moment = models.ForeignKey(
+        ClipMoment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='video_shorts',
+        help_text="Source clip moment this short was rendered from",
+    )
+    source_media_asset = models.ForeignKey(
+        MediaAsset,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='video_shorts',
+        help_text="Source media asset used for rendering",
+    )
+
+    title = models.CharField(max_length=255)
+    caption = models.TextField(blank=True, help_text="Platform caption / description for the short")
+    hashtags = models.JSONField(default=list, blank=True, help_text="List of hashtag strings")
+    platform_captions = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Per-platform captions: {"tiktok": "...", "youtube_shorts": "...", "instagram": "...", "linkedin": "..."}',
+    )
+
+    # Timing (copied from ClipMoment or set manually)
+    start_ms = models.PositiveIntegerField(help_text="Start time in milliseconds")
+    end_ms = models.PositiveIntegerField(help_text="End time in milliseconds")
+
+    aspect_ratio = models.CharField(
+        max_length=10,
+        choices=ShortAspectRatio.CHOICES,
+        default=ShortAspectRatio.VERTICAL,
+    )
+
+    # Render / upload status
+    status = models.CharField(
+        max_length=20,
+        choices=ShortStatus.CHOICES,
+        default=ShortStatus.QUEUED,
+    )
+    error_message = models.TextField(blank=True)
+
+    # DO Spaces storage
+    spaces_key = models.CharField(max_length=500, blank=True, help_text="DO Spaces key for the rendered video")
+    public_url = models.URLField(blank=True, help_text="Public CDN URL of the rendered short")
+    file_size = models.BigIntegerField(null=True, blank=True)
+    duration_seconds = models.FloatField(null=True, blank=True)
+
+    # AI-generated content (requires approval like other AI artifacts)
+    ai_caption_artifact = models.ForeignKey(
+        AIArtifact,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='video_shorts',
+        help_text="AI artifact that generated the caption/hashtags",
+    )
+
+    render_started_at = models.DateTimeField(null=True, blank=True)
+    render_completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Video Short"
+        verbose_name_plural = "Video Shorts"
+        ordering = ['start_ms']
+        indexes = [
+            models.Index(fields=['organization_uuid', 'episode']),
+            models.Index(fields=['organization_uuid', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.get_aspect_ratio_display()}) — {self.get_status_display()}"
+
+    @property
+    def duration_ms(self):
+        return self.end_ms - self.start_ms
+
+    @property
+    def shareable_link(self):
+        """CDN public link ready to share."""
+        return self.public_url or None
+
+    @property
+    def start_formatted(self):
+        seconds = self.start_ms // 1000
+        return f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+
+    @property
+    def end_formatted(self):
+        seconds = self.end_ms // 1000
+        return f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+
+
+# =============================================================================
 # SHOW NOTE FINAL
 # =============================================================================
 
@@ -1139,3 +1413,314 @@ class ExportRecord(BaseModel):
 
     def __str__(self):
         return f"{self.export_type} export for {self.episode.title}"
+
+
+# =============================================================================
+# ACCESS REQUEST
+# =============================================================================
+
+class AccessRequest(models.Model):
+    """
+    Track requests from people who want access to the platform.
+    Admin reviews and either creates an account or ignores.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200)
+    email = models.EmailField()
+    organization = models.CharField(max_length=200, blank=True, default='')
+    message = models.TextField(blank=True, default='')
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('declined', 'Declined'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='reviewed_access_requests',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Access Request"
+        verbose_name_plural = "Access Requests"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} <{self.email}> — {self.status}"
+
+
+# =============================================================================
+# INVITATION
+# =============================================================================
+
+class Invitation(models.Model):
+    """
+    Admin-created invitation to join the platform.
+    Stores a unique token that the invitee uses to set their password.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField()
+    name = models.CharField(max_length=200, blank=True, default='')
+    role = models.CharField(max_length=20, choices=Role.CHOICES, default=Role.GUEST)
+    token = models.CharField(max_length=64, unique=True, editable=False)
+
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='sent_invitations',
+    )
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Invitation"
+        verbose_name_plural = "Invitations"
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import secrets
+            self.token = secrets.token_urlsafe(48)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_accepted(self):
+        return self.accepted_at is not None
+
+    def __str__(self):
+        return f"Invite for {self.email} ({self.get_role_display()})"
+
+
+# =============================================================================
+# PLATFORM COMMENT
+# =============================================================================
+
+class PlatformComment(models.Model):
+    """
+    A listener/viewer comment collected from any podcast or video platform.
+
+    Automated ingestion is currently supported for YouTube (via the
+    Data API v3 using the per-show OAuth credentials stored in
+    PodcastFeedConfig).  All other platforms support manual entry.
+
+    Threading: top-level comments have ``parent`` = None.
+    Platform replies are stored as child records linked via ``parent``.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Scoping
+    organization_uuid = models.UUIDField(db_index=True)
+    show    = models.ForeignKey('Show',    on_delete=models.CASCADE, related_name='platform_comments', null=True, blank=True)
+    episode = models.ForeignKey('Episode', on_delete=models.CASCADE, related_name='platform_comments', null=True, blank=True)
+
+    # Source
+    platform         = models.CharField(max_length=50, choices=CommentPlatform.CHOICES, db_index=True)
+    external_id      = models.CharField(max_length=255, blank=True, db_index=True)  # Platform's own comment ID
+    parent           = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='replies')
+
+    # Author
+    author_name          = models.CharField(max_length=255, blank=True)
+    author_channel_url   = models.URLField(max_length=500, blank=True)
+    author_profile_image = models.URLField(max_length=500, blank=True)
+
+    # Content
+    body       = models.TextField()
+    like_count = models.PositiveIntegerField(default=0)
+
+    # Timestamps
+    platform_created_at = models.DateTimeField(null=True, blank=True)  # Original post time
+    synced_at           = models.DateTimeField(auto_now=True)
+    created_at          = models.DateTimeField(auto_now_add=True)
+
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=CommentStatus.CHOICES,
+        default=CommentStatus.NEW,
+        db_index=True,
+    )
+
+    # Our reply
+    our_reply_text       = models.TextField(blank=True)
+    our_reply_sent_at    = models.DateTimeField(null=True, blank=True)
+    our_reply_external_id = models.CharField(max_length=255, blank=True)  # Reply's platform ID after posting
+
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='added_platform_comments',
+    )
+    replied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='replied_platform_comments',
+    )
+
+    class Meta:
+        ordering = ['-platform_created_at', '-created_at']
+        indexes = [
+            models.Index(fields=['platform', 'external_id']),
+            models.Index(fields=['organization_uuid', 'status']),
+            models.Index(fields=['episode', 'platform']),
+        ]
+
+    def __str__(self):
+        author = self.author_name or 'Anonymous'
+        preview = (self.body or '')[:60]
+        return f"{self.get_platform_display()} — {author}: {preview}"
+
+    @property
+    def is_replied(self):
+        return bool(self.our_reply_sent_at)
+
+    @property
+    def is_top_level(self):
+        return self.parent_id is None
+
+
+# =============================================================================
+# ORGANIZATION API KEYS
+# =============================================================================
+
+class OrgAPIKey(models.Model):
+    """
+    Stores third-party API keys for an organization.
+    Keys are stored in plain text (encrypted-at-rest via DB/Spaces).
+    Only admins of the organization can view or update these.
+
+    Supported services:
+      openai     — OpenAI API key for TTS / AI features
+    """
+    SERVICE_OPENAI = 'openai'
+    SERVICE_CHOICES = [
+        (SERVICE_OPENAI, 'OpenAI (TTS, AI writing)'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization_uuid = models.UUIDField(db_index=True)
+    service = models.CharField(max_length=50, choices=SERVICE_CHOICES)
+    api_key = models.CharField(max_length=512, help_text="API key for this service")
+    label = models.CharField(max_length=100, blank=True, help_text="Optional label, e.g. 'Production key'")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='updated_api_keys',
+    )
+
+    class Meta:
+        verbose_name = "Organization API Key"
+        verbose_name_plural = "Organization API Keys"
+        unique_together = [['organization_uuid', 'service']]
+        indexes = [
+            models.Index(fields=['organization_uuid', 'service']),
+        ]
+
+    def __str__(self):
+        masked = f"{self.api_key[:8]}…" if len(self.api_key) > 8 else "***"
+        return f"{self.get_service_display()} [{masked}] ({self.organization_uuid})"
+
+    @classmethod
+    def get_key(cls, organization_uuid, service) -> str | None:
+        """Return the API key value for a service, or None if not configured."""
+        try:
+            return cls.objects.get(organization_uuid=organization_uuid, service=service).api_key
+        except cls.DoesNotExist:
+            return None
+
+
+# =============================================================================
+# BACKGROUND TASKS
+# =============================================================================
+
+class BackgroundTask(models.Model):
+    """
+    Tracks every daemon background job (AI generate, transcription, audio extraction,
+    feed rebuild, etc.) so the UI can poll for status and alert users on failure.
+    """
+
+    TASK_AI_GENERATE = 'ai_generate'
+    TASK_AUDIO_EXTRACT = 'audio_extract'
+    TASK_TRANSCRIPTION = 'transcription'
+    TASK_SHORT_IDENTIFY = 'short_identify'
+    TASK_FEED_REBUILD = 'feed_rebuild'
+    TASK_PUBLISH = 'publish'
+
+    TASK_TYPE_CHOICES = [
+        (TASK_AI_GENERATE, 'AI Generate'),
+        (TASK_AUDIO_EXTRACT, 'Audio Extraction'),
+        (TASK_TRANSCRIPTION, 'Transcription'),
+        (TASK_SHORT_IDENTIFY, 'Short Identification'),
+        (TASK_FEED_REBUILD, 'RSS Feed Rebuild'),
+        (TASK_PUBLISH, 'Publish'),
+    ]
+
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_COMPLETED = 'completed'
+    STATUS_FAILED = 'failed'
+    STATUS_TIMEOUT = 'timeout'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_COMPLETED, 'Completed'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_TIMEOUT, 'Timed Out'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization_uuid = models.UUIDField(db_index=True)
+    episode = models.ForeignKey(
+        'Episode',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='background_tasks',
+    )
+    task_type = models.CharField(max_length=50, choices=TASK_TYPE_CHOICES, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    label = models.CharField(max_length=255, default='')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, default='')
+    metadata = models.JSONField(default=dict)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='background_tasks',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['organization_uuid', 'status']),
+            models.Index(fields=['episode', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_task_type_display()} [{self.status}] — {self.label or self.id}"
+
+    @property
+    def is_terminal(self):
+        return self.status in (self.STATUS_COMPLETED, self.STATUS_FAILED, self.STATUS_TIMEOUT)
+
+    @property
+    def duration_seconds(self):
+        if self.started_at and self.completed_at:
+            return int((self.completed_at - self.started_at).total_seconds())
+        if self.started_at:
+            from django.utils import timezone  # noqa: PLC0415
+            return int((timezone.now() - self.started_at).total_seconds())
+        return None

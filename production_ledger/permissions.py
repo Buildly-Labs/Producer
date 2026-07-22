@@ -4,6 +4,7 @@ RBAC (Role-Based Access Control) for Production Ledger.
 Provides permission helpers and decorators for enforcing role-based access.
 """
 from functools import wraps
+import logging
 
 from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
@@ -11,6 +12,16 @@ from django.shortcuts import get_object_or_404
 
 from .constants import Role
 from .models import Episode, EpisodeRoleOverride, Guest, Show, ShowRoleAssignment
+
+
+logger = logging.getLogger(__name__)
+
+
+def _highest_role(roles):
+    """Return the highest-privilege role from a list of role strings."""
+    if not roles:
+        return None
+    return max(roles, key=lambda role: Role.HIERARCHY.get(role, 0))
 
 
 def get_user_role_for_show(user, show):
@@ -25,11 +36,22 @@ def get_user_role_for_show(user, show):
     if user.is_superuser:
         return Role.ADMIN
     
-    try:
-        assignment = ShowRoleAssignment.objects.get(show=show, user=user)
-        return assignment.role
-    except ShowRoleAssignment.DoesNotExist:
+    roles = list(
+        ShowRoleAssignment.objects
+        .filter(show=show, user=user)
+        .values_list('role', flat=True)
+    )
+    if not roles:
         return None
+
+    if len(roles) > 1:
+        logger.warning(
+            'Duplicate ShowRoleAssignment rows detected for user=%s show=%s; roles=%s',
+            getattr(user, 'id', None),
+            getattr(show, 'id', None),
+            roles,
+        )
+    return _highest_role(roles)
 
 
 def get_user_role_for_episode(user, episode):
@@ -45,11 +67,20 @@ def get_user_role_for_episode(user, episode):
         return Role.ADMIN
     
     # Check for episode-specific override first
-    try:
-        override = EpisodeRoleOverride.objects.get(episode=episode, user=user)
-        return override.role
-    except EpisodeRoleOverride.DoesNotExist:
-        pass
+    override_roles = list(
+        EpisodeRoleOverride.objects
+        .filter(episode=episode, user=user)
+        .values_list('role', flat=True)
+    )
+    if override_roles:
+        if len(override_roles) > 1:
+            logger.warning(
+                'Duplicate EpisodeRoleOverride rows detected for user=%s episode=%s; roles=%s',
+                getattr(user, 'id', None),
+                getattr(episode, 'id', None),
+                override_roles,
+            )
+        return _highest_role(override_roles)
     
     # Fall back to show role
     return get_user_role_for_show(user, episode.show)

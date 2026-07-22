@@ -1,0 +1,282 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}User Management — ProducerForge{% endblock %}
+
+{% block content %}
+<div class="px-4 sm:px-6 lg:px-8 py-8 max-w-6xl mx-auto" x-data="{ tab: '{{ active_tab|default:'users' }}' }">
+    <div class="flex items-center justify-between mb-8">
+        <div>
+            <h1 class="text-2xl font-bold">User Management</h1>
+            <p class="text-[var(--text-secondary)] text-sm mt-1">Invite users, manage access requests, and set permissions.</p>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex gap-1 mb-8 border-b border-[var(--border-subtle)]">
+        <button @click="tab='users'" :class="tab==='users' ? 'border-[var(--accent-primary)] text-[var(--accent-primary)]' : 'border-transparent text-[var(--text-secondary)]'" 
+                class="px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors">
+            Users ({{ users|length }})
+        </button>
+        <button @click="tab='invitations'" :class="tab==='invitations' ? 'border-[var(--accent-primary)] text-[var(--accent-primary)]' : 'border-transparent text-[var(--text-secondary)]'"
+                class="px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors">
+            Invitations ({{ invitations|length }})
+        </button>
+        <button @click="tab='requests'" :class="tab==='requests' ? 'border-[var(--accent-primary)] text-[var(--accent-primary)]' : 'border-transparent text-[var(--text-secondary)]'"
+                class="px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors">
+            Access Requests
+            {% if pending_requests %}
+            <span class="ml-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-[var(--accent-primary)] text-white text-xs">{{ pending_requests|length }}</span>
+            {% endif %}
+        </button>
+
+        <!-- Invite button aligned right -->
+        <div class="ml-auto flex items-center pb-2">
+            <a href="{% url 'production_ledger:invite_user' %}" class="btn btn-primary btn-sm">
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                </svg>
+                Invite User
+            </a>
+        </div>
+    </div>
+
+    <!-- Users Tab -->
+    <div x-show="tab==='users'" x-cloak>
+        <div class="card">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-[var(--border-subtle)]">
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">User</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Email</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Status</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Last Login</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr class="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]">
+                            <td class="px-4 py-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="avatar avatar-sm">{{ u.first_name.0|default:u.username.0|upper }}</div>
+                                    <div>
+                                        <div class="font-medium">{% if u.first_name %}{{ u.first_name }} {{ u.last_name }}{% else %}{{ u.username }}{% endif %}</div>
+                                        <div class="text-xs text-[var(--text-muted)]">{{ u.username }}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-[var(--text-secondary)]">{{ u.email }}</td>
+                            <td class="px-4 py-3">
+                                {% if u.is_superuser %}
+                                <span class="badge badge-warning">Admin</span>
+                                {% elif u.is_active %}
+                                <span class="badge badge-success">Active</span>
+                                {% else %}
+                                <span class="badge badge-default">Disabled</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-[var(--text-muted)]">{{ u.last_login|default:"Never"|date:"M d, Y" }}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <details class="relative">
+                                        <summary class="btn btn-sm btn-secondary cursor-pointer">Edit</summary>
+                                        <div class="absolute right-0 mt-2 z-20 w-80 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-lg p-3 shadow-xl">
+                                            <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}" class="space-y-2">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="update">
+                                                <label class="block text-xs text-[var(--text-muted)]">Email</label>
+                                                <input name="email" type="email" value="{{ u.email }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <label class="block text-xs text-[var(--text-muted)]">First Name</label>
+                                                <input name="first_name" type="text" value="{{ u.first_name }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <label class="block text-xs text-[var(--text-muted)]">Last Name</label>
+                                                <input name="last_name" type="text" value="{{ u.last_name }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <div class="flex items-center gap-3 text-xs">
+                                                    <label class="inline-flex items-center gap-1"><input type="checkbox" name="is_active" {% if u.is_active %}checked{% endif %}> Active</label>
+                                                    <label class="inline-flex items-center gap-1"><input type="checkbox" name="is_superuser" {% if u.is_superuser %}checked{% endif %}> Admin</label>
+                                                </div>
+                                                <button type="submit" class="btn btn-sm btn-primary w-full">Save</button>
+                                            </form>
+                                        </div>
+                                    </details>
+
+                                    <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="reset_password">
+                                        <button type="submit" class="btn btn-sm btn-secondary">Reset Password</button>
+                                    </form>
+
+                                    <details class="relative">
+                                        <summary class="btn btn-sm btn-secondary cursor-pointer">Set Temp Password</summary>
+                                        <div class="absolute right-0 mt-2 z-20 w-72 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-lg p-3 shadow-xl">
+                                            <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}" class="space-y-2">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="set_temp_password">
+                                                <input name="temp_password" type="text" minlength="8" placeholder="Temporary password" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <button type="submit" class="btn btn-sm btn-primary w-full">Set Temporary Password</button>
+                                            </form>
+                                        </div>
+                                    </details>
+
+                                    {% if u.pk != request.user.pk %}
+                                    <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}" onsubmit="return confirm('Disable this user?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="disable">
+                                        <button type="submit" class="btn btn-sm bg-yellow-700 hover:bg-yellow-800 text-white">Disable</button>
+                                    </form>
+
+                                    <form method="post" action="{% url 'production_ledger:user_account_action' pk=u.pk %}" onsubmit="return confirm('Delete this user permanently?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="delete">
+                                        <button type="submit" class="btn btn-sm bg-red-700 hover:bg-red-800 text-white">Delete</button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="px-4 py-8 text-center text-[var(--text-muted)]">No users yet.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invitations Tab -->
+    <div x-show="tab==='invitations'" x-cloak>
+        <div class="card">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-[var(--border-subtle)]">
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Email</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Role</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Status</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Sent</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for inv in invitations %}
+                        <tr class="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]">
+                            <td class="px-4 py-3 font-medium">{{ inv.email }}</td>
+                            <td class="px-4 py-3">
+                                <span class="badge badge-info">{{ inv.get_role_display }}</span>
+                            </td>
+                            <td class="px-4 py-3">
+                                {% if inv.is_accepted %}
+                                <span class="badge badge-success">Accepted</span>
+                                {% else %}
+                                <span class="badge badge-warning">Pending</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-[var(--text-muted)]">{{ inv.created_at|date:"M d, Y" }}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <details class="relative">
+                                        <summary class="btn btn-sm btn-secondary cursor-pointer">Edit</summary>
+                                        <div class="absolute right-0 mt-2 z-20 w-80 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-lg p-3 shadow-xl">
+                                            <form method="post" action="{% url 'production_ledger:invitation_action' pk=inv.pk %}" class="space-y-2">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="update">
+                                                <label class="block text-xs text-[var(--text-muted)]">Email</label>
+                                                <input name="email" type="email" value="{{ inv.email }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <label class="block text-xs text-[var(--text-muted)]">Name</label>
+                                                <input name="name" type="text" value="{{ inv.name }}" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                <label class="block text-xs text-[var(--text-muted)]">Role</label>
+                                                <select name="role" class="w-full px-2 py-1.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm">
+                                                    <option value="admin" {% if inv.role == 'admin' %}selected{% endif %}>Admin</option>
+                                                    <option value="host" {% if inv.role == 'host' %}selected{% endif %}>Host</option>
+                                                    <option value="producer" {% if inv.role == 'producer' %}selected{% endif %}>Producer</option>
+                                                    <option value="editor" {% if inv.role == 'editor' %}selected{% endif %}>Editor</option>
+                                                    <option value="guest" {% if inv.role == 'guest' %}selected{% endif %}>Guest</option>
+                                                </select>
+                                                <button type="submit" class="btn btn-sm btn-primary w-full">Save Invitation</button>
+                                            </form>
+                                        </div>
+                                    </details>
+
+                                    <form method="post" action="{% url 'production_ledger:invitation_action' pk=inv.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="resend">
+                                        <button type="submit" class="btn btn-sm btn-secondary">Resend</button>
+                                    </form>
+
+                                    <form method="post" action="{% url 'production_ledger:invitation_action' pk=inv.pk %}" onsubmit="return confirm('Delete this invitation?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="delete">
+                                        <button type="submit" class="btn btn-sm bg-red-700 hover:bg-red-800 text-white">Delete</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="px-4 py-8 text-center text-[var(--text-muted)]">No invitations sent yet.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Access Requests Tab -->
+    <div x-show="tab==='requests'" x-cloak>
+        <div class="card">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-[var(--border-subtle)]">
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Name</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Email</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Organization</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Status</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Requested</th>
+                            <th class="text-left px-4 py-3 text-[var(--text-secondary)] font-medium">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for req in access_requests %}
+                        <tr class="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]">
+                            <td class="px-4 py-3 font-medium">{{ req.name }}</td>
+                            <td class="px-4 py-3 text-[var(--text-secondary)]">{{ req.email }}</td>
+                            <td class="px-4 py-3 text-[var(--text-secondary)]">{{ req.organization|default:"—" }}</td>
+                            <td class="px-4 py-3">
+                                {% if req.status == 'pending' %}
+                                <span class="badge badge-warning">Pending</span>
+                                {% elif req.status == 'approved' %}
+                                <span class="badge badge-success">Approved</span>
+                                {% else %}
+                                <span class="badge badge-default">Declined</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-[var(--text-muted)]">{{ req.created_at|date:"M d, Y" }}</td>
+                            <td class="px-4 py-3">
+                                {% if req.status == 'pending' %}
+                                <div class="flex gap-2">
+                                    <form method="post" action="{% url 'production_ledger:review_access_request' pk=req.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="approve">
+                                        <button type="submit" class="btn btn-sm bg-green-600 hover:bg-green-700 text-white">Approve &amp; Invite</button>
+                                    </form>
+                                    <form method="post" action="{% url 'production_ledger:review_access_request' pk=req.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="decline">
+                                        <button type="submit" class="btn btn-sm bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]">Decline</button>
+                                    </form>
+                                </div>
+                                {% else %}
+                                <span class="text-xs text-[var(--text-muted)]">Reviewed</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6" class="px-4 py-8 text-center text-[var(--text-muted)]">No access requests.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

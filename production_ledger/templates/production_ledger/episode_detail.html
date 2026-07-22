@@ -89,6 +89,7 @@
                class="{% if active_tab == 'checklist' %}border-[var(--accent-primary)] text-[var(--accent-primary)]{% else %}border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)]{% endif %} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
                 Checklist
             </a>
+            {% endwith %}
         </nav>
     </div>
 
@@ -152,4 +153,89 @@
         {% endblock %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ block.super }}
+<!-- Background task monitoring -->
+<div id="forge-toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
+<div id="forge-ai-warning" class="hidden mb-4 rounded-lg border border-amber-500 bg-amber-950/30 p-3 items-start gap-3">
+    <span class="text-amber-400 text-lg">&#9888;</span>
+    <p class="text-sm text-amber-300">AI is running in <strong>MOCK mode</strong> — outputs are placeholder text. Configure <code>AI_PROVIDER</code> and API keys in Settings.</p>
+    <button onclick="this.parentElement.remove()" class="ml-auto text-amber-400 hover:text-amber-200 text-lg leading-none">&times;</button>
+</div>
+<script>
+var ACTIVE_TAB = '{{ active_tab }}';
+(function () {
+    'use strict';
+    const EPISODE_ID = '{{ episode.pk }}';
+    const POLL_INTERVAL = 6000;
+    let pollTimer = null;
+    const taskStates = {};
+
+    function showToast(msg, type) {
+        const container = document.getElementById('forge-toast-container');
+        if (!container) return;
+        const colors = type === 'error'
+            ? 'bg-red-950/90 border-red-600 text-red-200'
+            : type === 'warn'
+            ? 'bg-amber-950/90 border-amber-600 text-amber-200'
+            : 'bg-green-950/90 border-green-600 text-green-200';
+        const el = document.createElement('div');
+        el.className = 'pointer-events-auto rounded-lg border px-4 py-3 text-sm shadow-lg ' + colors + ' transition-opacity duration-500';
+        el.innerHTML = msg + '<button class="ml-3 opacity-60 hover:opacity-100 font-bold" onclick="this.parentElement.remove()">&times;</button>';
+        container.appendChild(el);
+        setTimeout(function () { el.style.opacity = '0'; setTimeout(function () { el.remove(); }, 500); }, 10000);
+    }
+
+    function taskTypeLabel(t) {
+        var map = { ai_generate: 'AI generation', audio_extract: 'Audio extraction',
+            transcription: 'Transcription', short_identify: 'Clip identification',
+            feed_rebuild: 'RSS feed rebuild', publish: 'Publishing' };
+        return map[t] || t;
+    }
+
+    function poll() {
+        fetch('/api/episodes/' + EPISODE_ID + '/tasks/')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.tasks) return;
+                data.tasks.forEach(function (task) {
+                    var prev = taskStates[task.id];
+                    taskStates[task.id] = task.status;
+                    if (prev === task.status) return;
+                    var label = task.label || taskTypeLabel(task.task_type);
+                    if (task.status === 'completed' && prev && prev !== 'completed') {
+                        showToast('&#10003; ' + label + ' completed.', 'success');
+                        // Auto-reload the clips tab when identification finishes
+                        if (task.task_type === 'short_identify' && ACTIVE_TAB === 'clips') {
+                            setTimeout(function () { window.location.reload(); }, 1200);
+                        }
+                    } else if (task.status === 'failed' && prev !== 'failed') {
+                        showToast('&#10007; ' + label + ' failed: ' + (task.error_message || 'Unknown error'), 'error');
+                    } else if (task.status === 'timeout' && prev !== 'timeout') {
+                        showToast('&#9201; ' + label + ' timed out. It may still be running — check back in a few minutes.', 'warn');
+                    }
+                });
+                if (data.has_running || data.has_pending) {
+                    pollTimer = setTimeout(poll, POLL_INTERVAL);
+                } else {
+                    pollTimer = null;
+                }
+            })
+            .catch(function () { pollTimer = null; });
+    }
+
+    fetch('/api/ai/status/')
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.is_mock) {
+                var w = document.getElementById('forge-ai-warning');
+                if (w) { w.style.display = 'flex'; }
+            }
+        }).catch(function () {});
+
+    poll();
+})();
+</script>
 {% endblock %}

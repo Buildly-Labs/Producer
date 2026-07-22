@@ -27,6 +27,9 @@ class Command(BaseCommand):
             self.style.SUCCESS('Starting to load initial data...')
         )
         
+        # Ensure a default admin user exists
+        self._ensure_admin_user()
+        
         # Seed default episode types
         if not options.get('skip_episode_types'):
             self._seed_episode_types()
@@ -73,3 +76,53 @@ class Command(BaseCommand):
         # SomeModel.objects.get_or_create(name='Sample', defaults={'description': 'Sample data'})
         
         self.stdout.write('Sample data creation completed.')
+
+    def _ensure_admin_user(self):
+        """Create or update the default admin user.
+
+        Credentials are resolved in order:
+          1. PRODUCER_ADMIN_EMAIL / PRODUCER_ADMIN_PASSWORD  (app-specific)
+          2. ADMIN_EMAIL / ADMIN_PASSWORD                    (shared across apps)
+          3. admin@example.com / changeme123                 (fallback)
+
+        The user is flagged as a superuser so they can access the Django admin.
+        If the env-var credentials differ from the existing superuser, the
+        existing account is updated to match.
+        """
+        import os
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        email = (os.getenv('PRODUCER_ADMIN_EMAIL')
+                 or os.getenv('ADMIN_EMAIL')
+                 or 'admin@example.com')
+        password = (os.getenv('PRODUCER_ADMIN_PASSWORD')
+                    or os.getenv('ADMIN_PASSWORD')
+                    or 'changeme123')
+        username = email.split('@')[0]
+
+        # Try to find an existing superuser with matching email or username
+        user = User.objects.filter(is_superuser=True).first()
+        if user:
+            changed = False
+            if user.email != email:
+                user.email = email
+                changed = True
+            if user.username != username:
+                user.username = username
+                changed = True
+            # Always reset password to env-var value so deploy stays in sync
+            user.set_password(password)
+            changed = True
+            if changed:
+                user.save()
+                self.stdout.write(self.style.SUCCESS(f'Updated admin user: {username} ({email})'))
+            else:
+                self.stdout.write('Admin user already exists and matches.')
+            return
+
+        User.objects.create_superuser(
+            username=username,
+            email=email,
+            password=password,
+        )
+        self.stdout.write(self.style.SUCCESS(f'Created admin user: {username} ({email})'))

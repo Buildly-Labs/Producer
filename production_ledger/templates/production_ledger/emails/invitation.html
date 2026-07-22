@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>You're invited to ProducerForge</title></head>
+<body style="font-family: sans-serif; color: #1a1a1a; max-width: 560px; margin: 0 auto; padding: 24px;">
+  <h2 style="color: #2563eb;">You've been invited to ProducerForge</h2>
+  <p>Hi{% if invitation.name %} {{ invitation.name }}{% endif %},</p>
+  <p>{{ inviter_name }} has invited you to join <strong>ProducerForge</strong> as a <strong>{{ invitation.get_role_display }}</strong>.</p>
+  <p style="margin: 32px 0;">
+    <a href="{{ invite_url }}"
+       style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">
+      Accept invitation
+    </a>
+  </p>
+  <p style="color:#6b7280;font-size:13px;">
+    Or copy this link into your browser:<br>
+    <a href="{{ invite_url }}" style="color:#2563eb;">{{ invite_url }}</a>
+  </p>
+  <p style="color:#6b7280;font-size:12px;border-top:1px solid #e5e7eb;padding-top:16px;margin-top:32px;">
+    This invitation was sent to {{ invitation.email }}. If you weren't expecting it, you can ignore this email.
+  </p>
+</body>
+</html>

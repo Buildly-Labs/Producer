@@ -411,7 +411,7 @@ def export_guest_brief_html(
         <h2>Episode Information</h2>
         <p><strong>Show:</strong> {episode.show.name}</p>
         <p><strong>Episode:</strong> {episode.title}</p>
-        <p><strong>Type:</strong> {episode.get_episode_type_display()}</p>
+        <p><strong>Type:</strong> {episode.episode_type.name if episode.episode_type else 'General'}</p>
         <p><strong>Format:</strong> {episode.get_recording_context_display()}</p>
         <p><strong>Target Duration:</strong> {episode.target_minutes} minutes</p>
         {"<p><strong>Scheduled:</strong> " + episode.scheduled_for.strftime('%B %d, %Y at %I:%M %p') + "</p>" if episode.scheduled_for else ""}

@@ -1,103 +1,166 @@
-# LOGIC Service
+# Producer — Podcast & Media Production Platform
 
-The Django Logic service is a template Logic Module for the Buildy RAD Core microservice architecture.
+A Django application for managing shows, episodes, transcripts, media assets, AI-assisted content generation, and publishing workflows. Part of the Buildly Foundry ecosystem.
 
-## Getting Started
+## Quick Start (Docker — recommended)
 
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
-
-### Prerequisites
-
-What things you need to install the software and how to install them
-
-You must have [Docker](https://www.docker.com/) installed.
-
-### Build & run service locally
-
-Build the Docker image:
+Producer runs as part of the ForgeMarketing multi-service container. From the repo root:
 
 ```bash
-docker-compose -f docker-compose.dev.yml build
+git clone --recurse-submodules https://github.com/Buildly-Marketplace/ForgeMarketing.git
+cd ForgeMarketing
+docker build -t forgemarketing .
+docker run -p 8080:8080 forgemarketing
 ```
 
-Run a web server with this service:
+Then open **http://localhost:8080/producer/**
+
+### Default Login
+
+| Field    | Value                |
+|----------|----------------------|
+| Email    | `admin@example.com`  |
+| Password | `changeme123`        |
+
+The default admin is created automatically on first startup.  
+Override with environment variables:
+
+| Variable                  | Default              |
+|---------------------------|----------------------|
+| `PRODUCER_ADMIN_EMAIL`    | `admin@example.com`  |
+| `PRODUCER_ADMIN_PASSWORD` | `changeme123`        |
+
+Django admin is available at **/producer/admin/**.
+
+## Architecture
+
+Producer is one of three services behind a shared nginx reverse proxy:
+
+| Service        | Internal Port | URL Path       |
+|----------------|---------------|----------------|
+| Gateway        | 5000          | `/`            |
+| Marketing Hub  | 8002          | `/marketing/`  |
+| **Producer**   | 8001          | `/producer/`   |
+
+Nginx listens on port **8080** and routes requests. All three services run under supervisord in a single Docker container.
+
+### Startup Sequence
+
+1. `python manage.py migrate --no-input` — apply database migrations
+2. `python manage.py loadinitialdata` — create default admin user and seed episode types
+3. `gunicorn -b 127.0.0.1:8001 -w 2 --timeout 120 logic_service.wsgi` — start the app
+
+### Key Settings (Docker)
+
+| Setting               | Value                             |
+|-----------------------|-----------------------------------|
+| `DJANGO_SETTINGS_MODULE` | `logic_service.settings.docker` |
+| `FORCE_SCRIPT_NAME`  | `/producer`                       |
+| `STATIC_URL`          | `/producer/static/`              |
+| `DATABASE`            | SQLite (default) or PostgreSQL    |
+| `ALLOWED_HOSTS`       | `['*']`                           |
+| `CSRF_TRUSTED_ORIGINS`| `['https://*.ondigitalocean.app']`|
+
+## Features
+
+- **Shows & Episodes** — Create podcast series, plan episodes with segments, guest prep, and run-of-show
+- **Guest Management** — Contact details, consent tracking, quote approval workflows
+- **Media Assets** — Upload/link audio and video with SHA256 checksums and chain-of-custody tracking
+- **Transcripts** — Versioned transcripts with confidence scoring
+- **Clip Moments** — Mark and tag moments for social-ready clips
+- **AI Artifacts** — AI-generated drafts (show notes, social posts) with full provenance tracking and approval gates
+- **Show Notes** — Draft → approve → finalize workflow
+- **Export** — JSON, Markdown, CSV clips, guest briefs, full episode packages
+- **Pre-Publish Checklists** — Required gate items before episodes go live
+- **Control Room** — Live studio mode for recording sessions
+- **RBAC** — Role-based access per show (Host, Producer, Editor, Guest Coordinator, Researcher, Reviewer)
+- **Multi-Tenant** — All models scoped to `organization_uuid`
+- **REST API** — Full DRF-powered API at `/producer/api/` with Swagger docs at `/producer/docs/`
+
+## URL Structure
+
+| Path                                    | Description                    |
+|-----------------------------------------|--------------------------------|
+| `/producer/`                            | Landing page                   |
+| `/producer/auth/login/`                 | Login                          |
+| `/producer/auth/logout/`                | Logout                         |
+| `/producer/admin/`                      | Django admin                   |
+| `/producer/ledger/`                     | Dashboard                      |
+| `/producer/ledger/shows/`              | Show list                      |
+| `/producer/ledger/shows/create/`       | Create show                    |
+| `/producer/ledger/shows/<id>/`         | Show detail                    |
+| `/producer/ledger/episodes/<id>/`      | Episode detail (tabbed UI)     |
+| `/producer/api/`                        | REST API root                  |
+| `/producer/docs/`                       | Swagger API docs               |
+
+## Local Development (without Docker)
 
 ```bash
-docker-compose -f docker-compose.dev.yml up
+cd Producer
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py loadinitialdata
+python manage.py runserver 0.0.0.0:8001
 ```
 
-Now, open your browser and go to [http://localhost:8080](http://localhost:8080).
+Note: Without the nginx proxy, access the app directly at `http://localhost:8001/`.
+Set `FORCE_SCRIPT_NAME=""` if running standalone.
 
-For the admin panel, go to [http://localhost:8080/admin](http://localhost:8080/admin)
-(user: `admin`, password: `admin`).
+### Environment Variables
 
-### Run tests
+| Variable              | Description                      | Default                    |
+|-----------------------|----------------------------------|----------------------------|
+| `DJANGO_SETTINGS_MODULE` | Settings module to use        | `logic_service.settings.docker` |
+| `DATABASE_ENGINE`     | `postgresql` or blank for SQLite | (blank → SQLite)           |
+| `DATABASE_NAME`       | Database name                    | `logic_service`            |
+| `DATABASE_USER`       | Database user                    | `root`                     |
+| `DATABASE_PASSWORD`   | Database password                | `root`                     |
+| `DATABASE_HOST`       | Database host                    | `localhost`                |
+| `DATABASE_PORT`       | Database port                    | `5432`                     |
+| `PRODUCER_ADMIN_EMAIL`| Seed admin email                 | `admin@example.com`        |
+| `PRODUCER_ADMIN_PASSWORD`| Seed admin password           | `changeme123`              |
+| `SECRET_KEY`          | Django secret key                | (hardcoded dev default)    |
+| `ALLOWED_HOSTS`       | Comma-separated hosts            | `*` (docker)               |
+| `FORCE_SCRIPT_NAME`   | URL prefix behind proxy          | `/producer`                |
+| `STATIC_URL`          | Static files URL path            | `/producer/static/`        |
 
-To run the tests once:
+## Data Models
 
-```bash
-docker-compose -f docker-compose.dev.yml run --rm --entrypoint 'bash scripts/run-tests.sh' {name-of-service}
-```
+| Model             | Purpose                                              |
+|-------------------|------------------------------------------------------|
+| Show              | Podcast series / brand                               |
+| EpisodeType       | Categorization (Interview, Deep Dive, News, etc.)    |
+| Episode           | Single episode with status workflow                  |
+| Segment           | Run-of-show segment within an episode                |
+| Guest             | Reusable guest/expert profile                        |
+| EpisodeGuest      | Guest appearance on a specific episode               |
+| MediaAsset        | Audio/video files with integrity tracking            |
+| Transcript        | Versioned episode transcripts                        |
+| ClipMoment        | Tagged moments for social clips                      |
+| AIArtifact        | AI-generated content with provenance and approval    |
+| ShowNoteDraft     | Draft show notes (potentially AI-generated)          |
+| ShowNoteFinal     | Approved, finalized show notes                       |
+| ChecklistItem     | Pre-publish gate items                               |
+| ExportRecord      | Track generated export files                         |
+| ShowRoleAssignment| User role on a show (RBAC)                          |
+| EpisodeRoleOverride| Per-episode role override                           |
 
-To run the tests and leave bash open inside the container so that it's possible to
-re-run the tests faster again using `bash scripts/run-tests.sh [--keepdb]`:
+## Dependencies
 
-```bash
-docker-compose -f docker-compose.dev.yml run --rm --entrypoint 'bash scripts/run-tests.sh --bash-on-finish' {name-of-service}
-```
-
-To run bash:
-
-```bash
-docker-compose -f docker-compose.dev.yml run --rm --entrypoint 'bash' {name-of-service}
-```
-
-### Using GitHub Actions
-
-This project uses GitHub Actions for CI/CD. The workflows are defined in the `.github/workflows` directory. Make sure your branch names match the deployment environments (e.g., `staging`, `production`).
-
-### Requirements
-
-For development builds, use `requirements-dev.txt`:
-
-```bash
-pip install -r requirements-dev.txt
-```
-
-For production builds, use `requirements-prod.txt`:
-
-```bash
-pip install -r requirements-prod.txt
-```
-
-## Deployment
-
-Helm Charts for deployment to Digital Ocean, Google Cloud, and AWS can be found here: [HELM](https://github.com/buildlyio/helm-charts)
-
-## Built With
-
-* [GitHub Actions](https://github.com/features/actions) - CI/CD
-* [TravisCI](http://www.travisci.org) - Recommended CI/CD
-
-## Contributing
-
-Please read [CONTRIBUTING.md](https://github.com/buildlyio/docs/CONTRIBUTING) for details on our code of conduct, and the process for submitting pull requests to us.
-
-## Versioning
-
-We use [SemVer](http://semver.org/) for versioning. For the versions available, see the [tags on this repository](https://github.com/your/project/tags).
-
-## Authors
-
-* **Buildly** - *Initial work*
-
-See also the list of [contributors](https://github.com/buildlyio/yourproject/contributors) who participated in this project.
+- Django 5.1.x
+- Django REST Framework 3.15
+- drf-yasg (Swagger/OpenAPI)
+- django-filter
+- django-cors-headers
+- django-allauth
+- django-import-export
+- gunicorn
+- psycopg2-binary (PostgreSQL adapter)
 
 ## License
 
-This project is licensed under the GPL v3 License - see the [LICENSE.md](LICENSE.md) file for details
-
-## Acknowledgments
+GPL v3 — see [LICENSE.md](LICENSE.md)
 
 * Hat tip to anyone whose code was used
 * Inspiration

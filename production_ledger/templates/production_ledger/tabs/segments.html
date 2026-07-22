@@ -32,6 +32,12 @@
                             <span>💰 {{ segment.sponsor.name }}</span>
                             {% endif %}
                         </div>
+                        {% if segment.bullet_prompts %}
+                        <div class="mt-2">
+                            <span class="text-xs font-medium text-slate-500 uppercase">Prompts:</span>
+                            <p class="text-sm text-slate-300 whitespace-pre-line">{{ segment.bullet_prompts }}</p>
+                        </div>
+                        {% endif %}
                         {% if segment.key_questions %}
                         <div class="mt-2">
                             <span class="text-xs font-medium text-[var(--text-muted)] uppercase">Key Questions:</span>
