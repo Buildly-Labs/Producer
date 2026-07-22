@@ -8,7 +8,7 @@ import uuid
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('production_ledger', '0008_episode_active_segment_constraint'),
+        ('production_ledger', '0008_add_segment_live_recording_fields'),
         ('splice', '0001_initial'),
     ]
 

@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("production_ledger", "0008_episode_active_segment_constraint"),
+        ("production_ledger", "0008_add_segment_live_recording_fields"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
