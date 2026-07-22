@@ -1,0 +1,121 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Comments - Production Ledger{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="text-2xl font-bold text-[var(--text-primary)]">Comments</h1>
+            <p class="text-[var(--text-secondary)] mt-1">Manage listener and viewer comments from all platforms.</p>
+        </div>
+        <a href="{% url 'production_ledger:comment_add' %}"
+           class="px-4 py-2 bg-[var(--accent-primary)] text-white rounded-md font-medium hover:bg-[var(--accent-primary-hover)]">
+            Add Comment
+        </a>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-default)] p-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form method="get" class="flex gap-2">
+                <select name="status" class="px-3 py-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                    <option value="">All Statuses</option>
+                    {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <select name="platform" class="px-3 py-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+                    <option value="">All Platforms</option>
+                    {% for value, label in platform_choices %}
+                    <option value="{{ value }}" {% if platform_filter == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="px-4 py-2 bg-[var(--accent-primary)] text-white rounded-md font-medium hover:bg-[var(--accent-primary-hover)]">
+                    Filter
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Comments List -->
+    <div class="space-y-4">
+        {% for comment in comments %}
+        <div class="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-default)] p-4">
+            <div class="flex items-start justify-between">
+                <div class="flex-1">
+                    <div class="flex items-center gap-3 mb-2">
+                        {% if comment.author_profile_image %}
+                        <img src="{{ comment.author_profile_image }}" alt="{{ comment.author_name }}" class="h-8 w-8 rounded-full">
+                        {% else %}
+                        <div class="h-8 w-8 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center">
+                            <span class="text-xs font-bold text-[var(--text-muted)]">{{ comment.author_name|first }}</span>
+                        </div>
+                        {% endif %}
+                        <div>
+                            <p class="text-sm font-medium text-[var(--text-primary)]">{{ comment.author_name }}</p>
+                            <p class="text-xs text-[var(--text-muted)]">{{ comment.platform_created_at|date:"M j, Y at H:i" }}</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-[var(--text-secondary)] mb-3">{{ comment.body }}</p>
+                    {% if comment.episode %}
+                    <p class="text-xs text-[var(--text-muted)]">
+                        From: <a href="{% url 'production_ledger:episode_detail' comment.episode.pk %}" class="text-[var(--accent-primary)] hover:underline">{{ comment.episode.title }}</a>
+                    </p>
+                    {% endif %}
+                </div>
+                <div class="flex gap-2">
+                    <form method="post" action="{% url 'production_ledger:comment_reply' comment.pk %}" style="display:inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="text-xs px-2 py-1 text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)]">
+                            Reply
+                        </button>
+                    </form>
+                    <form method="post" action="{% url 'production_ledger:comment_status' comment.pk %}" style="display:inline;">
+                        {% csrf_token %}
+                        <select name="status" class="text-xs px-2 py-1 rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]" onchange="this.form.submit()">
+                            <option value="{{ comment.status }}" selected>{{ comment.get_status_display }}</option>
+                            {% for value, label in status_choices %}
+                            {% if value != comment.status %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </form>
+                </div>
+            </div>
+
+            {% if comment.our_reply_text %}
+            <div class="mt-4 ml-11 p-3 bg-[var(--bg-tertiary)] rounded border-l-2 border-[var(--accent-primary)]">
+                <p class="text-xs font-medium text-[var(--text-muted)] mb-1">Our Reply</p>
+                <p class="text-sm text-[var(--text-secondary)]">{{ comment.our_reply_text }}</p>
+            </div>
+            {% endif %}
+        </div>
+        {% empty %}
+        <div class="text-center py-12">
+            <svg class="mx-auto h-12 w-12 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+            </svg>
+            <h3 class="mt-2 text-sm font-medium text-[var(--text-primary)]">No comments yet</h3>
+            <p class="mt-1 text-sm text-[var(--text-muted)]">Comments from listeners will appear here.</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {% if is_paginated %}
+    <div class="flex justify-center gap-2 mt-8">
+        {% if page_obj.has_previous %}
+        <a href="?page=1" class="px-3 py-2 rounded-md border border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">First</a>
+        <a href="?page={{ page_obj.previous_page_number }}" class="px-3 py-2 rounded-md border border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">← Previous</a>
+        {% endif %}
+        <span class="px-3 py-2 text-[var(--text-secondary)]">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+        <a href="?page={{ page_obj.next_page_number }}" class="px-3 py-2 rounded-md border border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">Next →</a>
+        <a href="?page={{ page_obj.paginator.num_pages }}" class="px-3 py-2 rounded-md border border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">Last</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,96 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Review Access Request - Production Ledger{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="bg-[var(--bg-secondary)] shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-[var(--border-default)]">
+            <h1 class="text-xl font-medium text-[var(--text-primary)]">Review Access Request</h1>
+        </div>
+
+        <div class="px-6 py-4">
+            {% if access_request %}
+            <div class="space-y-6">
+                <!-- Request Details -->
+                <div>
+                    <h3 class="text-lg font-medium text-[var(--text-primary)] mb-4">Request Details</h3>
+                    <dl class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <dt class="text-sm font-medium text-[var(--text-secondary)]">Name</dt>
+                            <dd class="mt-1 text-sm text-[var(--text-primary)]">{{ access_request.name }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-[var(--text-secondary)]">Email</dt>
+                            <dd class="mt-1 text-sm text-[var(--text-primary)]">{{ access_request.email }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-[var(--text-secondary)]">Organization</dt>
+                            <dd class="mt-1 text-sm text-[var(--text-primary)]">{{ access_request.organization|default:"Not specified" }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-[var(--text-secondary)]">Status</dt>
+                            <dd class="mt-1">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                    {% if access_request.status == 'pending' %}bg-yellow-100 text-yellow-800{% elif access_request.status == 'approved' %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                                    {{ access_request.get_status_display }}
+                                </span>
+                            </dd>
+                        </div>
+                    </dl>
+                </div>
+
+                <!-- Message -->
+                {% if access_request.message %}
+                <div>
+                    <h3 class="text-lg font-medium text-[var(--text-primary)] mb-2">Message</h3>
+                    <p class="text-[var(--text-secondary)] whitespace-pre-wrap">{{ access_request.message }}</p>
+                </div>
+                {% endif %}
+
+                <!-- Timeline -->
+                <div>
+                    <h3 class="text-lg font-medium text-[var(--text-primary)] mb-2">Timeline</h3>
+                    <dl class="space-y-4">
+                        <div class="flex">
+                            <dt class="text-sm font-medium text-[var(--text-secondary)] w-24">Requested</dt>
+                            <dd class="text-sm text-[var(--text-primary)]">{{ access_request.created_at|date:"M j, Y at H:i" }}</dd>
+                        </div>
+                        {% if access_request.reviewed_at %}
+                        <div class="flex">
+                            <dt class="text-sm font-medium text-[var(--text-secondary)] w-24">Reviewed</dt>
+                            <dd class="text-sm text-[var(--text-primary)]">{{ access_request.reviewed_at|date:"M j, Y at H:i" }} by {{ access_request.reviewed_by.get_full_name|default:access_request.reviewed_by.username }}</dd>
+                        </div>
+                        {% endif %}
+                    </dl>
+                </div>
+
+                <!-- Actions -->
+                {% if access_request.status == 'pending' %}
+                <form method="post" class="flex gap-3 pt-4 border-t border-[var(--border-default)]">
+                    {% csrf_token %}
+                    <button type="submit" name="action" value="approve"
+                            class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                        Approve & Send Invitation
+                    </button>
+                    <button type="submit" name="action" value="decline"
+                            class="flex-1 px-4 py-2 border border-[var(--border-default)] text-[var(--text-primary)] rounded-md font-medium hover:bg-[var(--bg-tertiary)] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                        Decline Request
+                    </button>
+                </form>
+                {% else %}
+                <div class="flex gap-3 pt-4 border-t border-[var(--border-default)]">
+                    <a href="{% url 'production_ledger:user_management' %}"
+                       class="flex-1 px-4 py-2 border border-[var(--border-default)] text-[var(--text-primary)] rounded-md font-medium hover:bg-[var(--bg-tertiary)] text-center">
+                        Back to Requests
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <p class="text-[var(--text-secondary)]">Request not found.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Add Comment - Production Ledger{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="bg-[var(--bg-secondary)] shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-[var(--border-default)]">
+            <h1 class="text-xl font-medium text-[var(--text-primary)]">Add Manual Comment</h1>
+        </div>
+
+        <form method="post" class="px-6 py-4 space-y-6">
+            {% csrf_token %}
+
+            <div>
+                <label for="{{ form.episode.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                    Episode
+                </label>
+                {{ form.episode }}
+                {% if form.episode.errors %}<p class="text-sm text-red-400 mt-1">{{ form.episode.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.show.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                    Show <span class="text-red-400">*</span>
+                </label>
+                {{ form.show }}
+                {% if form.show.errors %}<p class="text-sm text-red-400 mt-1">{{ form.show.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.platform.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                    Platform <span class="text-red-400">*</span>
+                </label>
+                {{ form.platform }}
+                {% if form.platform.errors %}<p class="text-sm text-red-400 mt-1">{{ form.platform.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.author_name.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                    Author Name <span class="text-red-400">*</span>
+                </label>
+                {{ form.author_name }}
+                {% if form.author_name.errors %}<p class="text-sm text-red-400 mt-1">{{ form.author_name.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.author_channel_url.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                    Author URL
+                </label>
+                {{ form.author_channel_url }}
+                {% if form.author_channel_url.errors %}<p class="text-sm text-red-400 mt-1">{{ form.author_channel_url.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.body.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                    Comment Text <span class="text-red-400">*</span>
+                </label>
+                {{ form.body }}
+                {% if form.body.errors %}<p class="text-sm text-red-400 mt-1">{{ form.body.errors|join:", " }}</p>{% endif %}
+            </div>
+
+            <div class="flex justify-end space-x-3 pt-4 border-t border-[var(--border-default)]">
+                <a href="{% url 'production_ledger:comment_list' %}"
+                   class="px-4 py-2 border border-[var(--border-default)] text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)]">
+                    Cancel
+                </a>
+                <button type="submit" class="px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)]">
+                    Add Comment
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

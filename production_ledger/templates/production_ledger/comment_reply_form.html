@@ -1,0 +1,58 @@
+{% extends "production_ledger/base.html" %}
+
+{% block title %}Reply to Comment - Production Ledger{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="bg-[var(--bg-secondary)] shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-[var(--border-default)]">
+            <h1 class="text-xl font-medium text-[var(--text-primary)]">Reply to Comment</h1>
+        </div>
+
+        <div class="px-6 py-4 space-y-6">
+            <!-- Original Comment -->
+            <div>
+                <h3 class="text-sm font-medium text-[var(--text-secondary)] mb-3">Original Comment</h3>
+                <div class="bg-[var(--bg-tertiary)] rounded-lg p-4 border border-[var(--border-default)]">
+                    <div class="flex items-center gap-2 mb-2">
+                        {% if object.author_profile_image %}
+                        <img src="{{ object.author_profile_image }}" alt="{{ object.author_name }}" class="h-6 w-6 rounded-full">
+                        {% else %}
+                        <div class="h-6 w-6 rounded-full bg-[var(--bg-primary)] flex items-center justify-center">
+                            <span class="text-xs font-bold text-[var(--text-muted)]">{{ object.author_name|first }}</span>
+                        </div>
+                        {% endif %}
+                        <p class="text-sm font-medium text-[var(--text-primary)]">{{ object.author_name }}</p>
+                        <p class="text-xs text-[var(--text-muted)]">{{ object.platform_created_at|date:"M j, Y at H:i" }}</p>
+                    </div>
+                    <p class="text-sm text-[var(--text-secondary)]">{{ object.body }}</p>
+                </div>
+            </div>
+
+            <!-- Reply Form -->
+            <form method="post" class="space-y-4">
+                {% csrf_token %}
+
+                <div>
+                    <label for="{{ form.our_reply_text.id_for_label }}" class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                        {{ form.our_reply_text.label }} <span class="text-red-400">*</span>
+                    </label>
+                    {{ form.our_reply_text }}
+                    {% if form.our_reply_text.errors %}<p class="text-sm text-red-400 mt-1">{{ form.our_reply_text.errors|join:", " }}</p>{% endif %}
+                    <p class="text-xs text-[var(--text-muted)] mt-1">Your reply will be posted to {{ object.get_platform_display }}.</p>
+                </div>
+
+                <div class="flex justify-end space-x-3 pt-4 border-t border-[var(--border-default)]">
+                    <a href="{% url 'production_ledger:comment_list' %}"
+                       class="px-4 py-2 border border-[var(--border-default)] text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)]">
+                        Cancel
+                    </a>
+                    <button type="submit" class="px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)]">
+                        Send Reply
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
