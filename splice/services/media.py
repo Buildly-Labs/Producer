@@ -193,6 +193,7 @@ class MediaService:
 
         # Create fingerprint record
         fingerprint = MediaFingerprint.objects.create(
+            organization_uuid=asset.organization_uuid,
             asset=asset,
             fingerprint_version=MediaService.FINGERPRINT_VERSION,
             fingerprint_method='multi_method',
@@ -343,6 +344,7 @@ class MediaService:
 
         # Create location record
         location = MediaLocation.objects.create(
+            organization_uuid=asset.organization_uuid,
             asset=asset,
             location_type=location_type,
             availability='available',

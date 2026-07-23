@@ -106,6 +106,7 @@ class LocalEngineService:
         expires_at = timezone.now() + timedelta(minutes=expires_in_minutes)
 
         session = LocalEngineSession.objects.create(
+            organization_uuid=engine.organization_uuid,
             local_engine=engine,
             session_token=session_token,
             browser_origin=browser_origin,

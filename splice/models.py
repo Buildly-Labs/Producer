@@ -1332,6 +1332,11 @@ class LocalEngineInstallation(BaseModel):
     def __str__(self):
         return f"{self.engine_name} ({self.engine_uuid})"
 
+    @property
+    def is_authenticated(self):
+        """Satisfies DRF's IsAuthenticated check when this stands in for request.user."""
+        return True
+
 
 class LocalEngineSession(BaseModel):
     """

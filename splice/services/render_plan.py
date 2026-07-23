@@ -47,10 +47,13 @@ class RenderPlanService:
         project = EditorProject.objects.get(id=project_id)
 
         # Collect asset UUIDs (from all clips/tracks)
+        # Clip has no direct FK to project - it belongs to a VideoTrack or
+        # AudioTrack, each of which belongs to the project.
         asset_uuids = []
+        from django.db.models import Q
         from splice.models import Clip
         clips = Clip.objects.filter(
-            project=project,
+            Q(track__project=project) | Q(audio_track__project=project),
             media_asset__isnull=False
         ).values_list('media_asset__id', flat=True).distinct()
         asset_uuids.extend(str(uuid) for uuid in clips)
@@ -74,25 +77,29 @@ class RenderPlanService:
         from splice.models import CameraCut
         cuts = CameraCut.objects.filter(
             project=project
-        ).values('timeline_start_ms', 'timeline_end_ms', 'camera_asset__id').order_by('timeline_start_ms')
+        ).values('timeline_start_ms', 'timeline_end_ms', 'selected_camera_uuid').order_by('timeline_start_ms')
         for cut in cuts:
             camera_cuts.append({
                 'start_ms': cut['timeline_start_ms'],
                 'end_ms': cut['timeline_end_ms'],
-                'asset_uuid': str(cut['camera_asset__id']),
+                'asset_uuid': str(cut['selected_camera_uuid']),
             })
 
-        # Collect sync offsets from MediaSyncPoint
+        # Collect sync offsets from MediaSyncPoint.
+        # Each point anchors one moment in asset1 to the same moment in
+        # asset2 (asset1_time_ms == asset2_time_ms in real time); the offset
+        # to apply to asset2 so it aligns with asset1 is the difference.
         sync_offsets = {}
         from splice.models import MediaSyncPoint
         sync_points = MediaSyncPoint.objects.filter(
             project=project
-        ).values('media_asset__id', 'sync_offset_ms')
+        ).values('asset1_id', 'asset2_id', 'asset1_time_ms', 'asset2_time_ms')
         for point in sync_points:
-            sync_offsets[str(point['media_asset__id'])] = point['sync_offset_ms']
+            sync_offsets[str(point['asset2_id'])] = point['asset2_time_ms'] - point['asset1_time_ms']
 
         # Create render plan
         plan = RenderPlan.objects.create(
+            organization_uuid=project.organization_uuid,
             project=project,
             revision=revision,
             asset_selections=asset_uuids,
