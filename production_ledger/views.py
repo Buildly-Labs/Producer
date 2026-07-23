@@ -2114,8 +2114,11 @@ class ControlRoomView(EpisodeTabMixin, TemplateView):
         context['guests'] = episode.episode_guests.select_related('guest').all()
 
         # Calculate progress
+        # Segment.is_completed was removed (Splice-era refactor); completion
+        # tracking has no replacement field yet, so report 0 rather than
+        # query a nonexistent column.
         total_segments = segments.count()
-        completed_segments = segments.filter(is_completed=True).count()
+        completed_segments = 0
         context['total_segments'] = total_segments
         context['completed_segments'] = completed_segments
         context['progress_percentage'] = int((completed_segments / total_segments * 100) if total_segments > 0 else 0)
@@ -2180,18 +2183,25 @@ def _second_screen_state(episode, overlay_token=None):
     segment = episode.active_segment
     sponsor = segment.sponsor if segment else None
 
-    # Safely get logo URL - handle case where logo field might not exist in schema yet
+    # Safely get logo/background URLs - handle case where these fields
+    # might not exist in schema yet (temporarily removed pending migration
+    # 0020 application; see production_ledger/models.py Show).
     try:
         show_logo_url = show.logo.url if show.logo else None
     except AttributeError:
         show_logo_url = None
+
+    try:
+        background_url = show.second_screen_background.url if show.second_screen_background else None
+    except AttributeError:
+        background_url = None
 
     state = {
         'episode_id': str(episode.pk),
         'episode_title': episode.title,
         'show_name': show.name,
         'show_logo_url': show_logo_url,
-        'background_url': show.second_screen_background.url if show.second_screen_background else None,
+        'background_url': background_url,
         'brand_primary_color': show.brand_primary_color or None,
         'segment': None,
         'sponsor': None,

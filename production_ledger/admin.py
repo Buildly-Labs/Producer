@@ -88,7 +88,9 @@ class ShowAdmin(BaseModelAdmin):
             'fields': ('name', 'slug', 'description', 'organization_uuid')
         }),
         ('Branding', {
-            'fields': ('brand_primary_color', 'logo', 'second_screen_background', 'default_intro_text', 'default_outro_text'),
+            # logo/second_screen_background temporarily removed from the
+            # model pending migration 0020 application (see models.py Show).
+            'fields': ('brand_primary_color', 'default_intro_text', 'default_outro_text'),
             'classes': ('collapse',),
         }),
         ('Metadata', {
