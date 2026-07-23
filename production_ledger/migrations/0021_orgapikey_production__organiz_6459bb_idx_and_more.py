@@ -4,6 +4,33 @@ from django.conf import settings
 from django.db import migrations, models
 
 
+def _index_exists(schema_editor, table_name, index_name):
+    with schema_editor.connection.cursor() as cursor:
+        constraints = schema_editor.connection.introspection.get_constraints(cursor, table_name)
+    return index_name in constraints
+
+
+def add_orgapikey_index_if_missing(apps, schema_editor):
+    """
+    0016's create_model() sometimes already creates this index (when the
+    historical model state carries Meta.indexes), so guard against it
+    already existing rather than assume it doesn't - same class of issue
+    as ShowJoinRequest's indexes in 0009/0010.
+    """
+    OrgAPIKey = apps.get_model('production_ledger', 'OrgAPIKey')
+    table = OrgAPIKey._meta.db_table
+    if not _index_exists(schema_editor, table, 'production__organiz_6459bb_idx'):
+        schema_editor.add_index(
+            OrgAPIKey,
+            models.Index(fields=['organization_uuid', 'service'], name='production__organiz_6459bb_idx'),
+        )
+
+
+def reverse_add_orgapikey_index(apps, schema_editor):
+    # Non-destructive: leave the index in place.
+    return
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -12,12 +39,19 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddIndex(
-            model_name="orgapikey",
-            index=models.Index(
-                fields=["organization_uuid", "service"],
-                name="production__organiz_6459bb_idx",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="orgapikey",
+                    index=models.Index(
+                        fields=["organization_uuid", "service"],
+                        name="production__organiz_6459bb_idx",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunPython(add_orgapikey_index_if_missing, reverse_add_orgapikey_index),
+            ],
         ),
         migrations.AlterModelTable(
             name="orgapikey",

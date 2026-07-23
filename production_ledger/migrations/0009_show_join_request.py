@@ -26,6 +26,20 @@ def create_show_join_request_if_missing(apps, schema_editor):
 
     if not _table_exists(schema_editor, TABLE_NAME):
         schema_editor.create_model(ShowJoinRequest)
+        # create_model() may or may not create these two named indexes
+        # depending on whether the historical model state carries
+        # Meta.indexes - check before adding so this stays idempotent either
+        # way and the DB ends up matching migration state exactly.
+        if not _index_exists(schema_editor, TABLE_NAME, 'production__show_id_status_idx'):
+            schema_editor.add_index(
+                ShowJoinRequest,
+                models.Index(fields=['show', 'status'], name='production__show_id_status_idx'),
+            )
+        if not _index_exists(schema_editor, TABLE_NAME, 'production__user_id_status_idx'):
+            schema_editor.add_index(
+                ShowJoinRequest,
+                models.Index(fields=['user', 'status'], name='production__user_id_status_idx'),
+            )
         return
 
     # If table already exists (drifted DB), ensure the expected indexes exist.

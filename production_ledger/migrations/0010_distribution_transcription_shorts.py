@@ -6,6 +6,40 @@ import django.db.models.deletion
 import uuid
 
 
+def _index_exists(schema_editor, table_name, index_name):
+    with schema_editor.connection.cursor() as cursor:
+        constraints = schema_editor.connection.introspection.get_constraints(cursor, table_name)
+    return index_name in constraints
+
+
+def rename_show_join_request_indexes(apps, schema_editor):
+    """
+    Rename ShowJoinRequest's two indexes from 0009's hardcoded names to
+    Django's auto-generated names, tolerating whichever ones migration 0009
+    actually created on this database (its create_model() call sometimes
+    creates both the hardcoded and auto-generated names in one pass,
+    depending on how the historical model state was reconstructed).
+    """
+    ShowJoinRequest = apps.get_model('production_ledger', 'ShowJoinRequest')
+    table = ShowJoinRequest._meta.db_table
+
+    renames = [
+        ('production__show_id_status_idx', 'production__show_id_822fc9_idx', ['show', 'status']),
+        ('production__user_id_status_idx', 'production__user_id_e6e8b9_idx', ['user', 'status']),
+    ]
+    for old_name, new_name, fields in renames:
+        if _index_exists(schema_editor, table, new_name):
+            continue
+        if _index_exists(schema_editor, table, old_name):
+            schema_editor.remove_index(ShowJoinRequest, models.Index(fields=fields, name=old_name))
+        schema_editor.add_index(ShowJoinRequest, models.Index(fields=fields, name=new_name))
+
+
+def reverse_rename_show_join_request_indexes(apps, schema_editor):
+    # Non-destructive: leave whichever index names are present.
+    return
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -93,21 +127,31 @@ class Migration(migrations.Migration):
                 'ordering': ['start_ms'],
             },
         ),
-        migrations.RemoveIndex(
-            model_name='showjoinrequest',
-            name='production__show_id_status_idx',
-        ),
-        migrations.RemoveIndex(
-            model_name='showjoinrequest',
-            name='production__user_id_status_idx',
-        ),
-        migrations.AddIndex(
-            model_name='showjoinrequest',
-            index=models.Index(fields=['show', 'status'], name='production__show_id_822fc9_idx'),
-        ),
-        migrations.AddIndex(
-            model_name='showjoinrequest',
-            index=models.Index(fields=['user', 'status'], name='production__user_id_e6e8b9_idx'),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveIndex(
+                    model_name='showjoinrequest',
+                    name='production__show_id_status_idx',
+                ),
+                migrations.RemoveIndex(
+                    model_name='showjoinrequest',
+                    name='production__user_id_status_idx',
+                ),
+                migrations.AddIndex(
+                    model_name='showjoinrequest',
+                    index=models.Index(fields=['show', 'status'], name='production__show_id_822fc9_idx'),
+                ),
+                migrations.AddIndex(
+                    model_name='showjoinrequest',
+                    index=models.Index(fields=['user', 'status'], name='production__user_id_e6e8b9_idx'),
+                ),
+            ],
+            database_operations=[
+                migrations.RunPython(
+                    rename_show_join_request_indexes,
+                    reverse_rename_show_join_request_indexes,
+                ),
+            ],
         ),
         migrations.AddField(
             model_name='videoshort',
