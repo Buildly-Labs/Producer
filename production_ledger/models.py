@@ -94,7 +94,8 @@ class Show(BaseModel):
     default_outro_text = models.TextField(blank=True, help_text="Default outro text for episodes")
     # TODO: logo field temporarily commented out - migration 0020 pending application
     # logo = models.ImageField(upload_to=show_branding_upload_path, null=True, blank=True, help_text="Show logo for the second-screen display and other branding")
-    second_screen_background = models.ImageField(upload_to=show_branding_upload_path, null=True, blank=True, help_text="Default full-screen background shown between segments on the second screen")
+    # TODO: second_screen_background field temporarily commented out - migration 0020 pending application
+    # second_screen_background = models.ImageField(upload_to=show_branding_upload_path, null=True, blank=True, help_text="Default full-screen background shown between segments on the second screen")
 
     class Meta:
         verbose_name = "Show"
