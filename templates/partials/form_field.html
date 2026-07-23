@@ -30,7 +30,7 @@
         <span class="checkmark"></span>
         {% if field.label %}{{ field.label }}{% endif %}
     </label>
-    {% elif field.field.widget.input_type == 'textarea' or 'Textarea' in field.field.widget.__class__.__name__ %}
+    {% elif field.field.widget.input_type == 'textarea' or 'textarea' in field.field.widget.template_name %}
     {{ field }}
     {% else %}
     {{ field }}
