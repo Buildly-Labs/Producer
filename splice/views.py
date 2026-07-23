@@ -17,6 +17,7 @@ from rest_framework.decorators import action, api_view, authentication_classes, 
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import TokenAuthentication
+from rest_framework.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
@@ -28,8 +29,24 @@ from splice.serializers import (
     LocalEngineInstallationSerializer, LocalEngineSessionSerializer,
     LocalProcessingJobSerializer, RenderPlanSerializer, EditorProjectSerializer
 )
+from splice.authentication import EngineAuthentication
 from splice.services.local_engine import LocalEngineService
 from splice.services.render_plan import RenderPlanService
+
+
+def get_request_org_uuid(request):
+    """
+    Resolve the organization UUID for either authenticated principal.
+
+    request.user is a real Django User for browser sessions/tokens (which
+    has no organization_uuid field - it's derived via show-role assignment)
+    or a LocalEngineInstallation for engine credentials (which carries
+    organization_uuid directly, same as every other Splice model).
+    """
+    if isinstance(request.user, LocalEngineInstallation):
+        return request.user.organization_uuid
+    from production_ledger.permissions import get_user_organization_uuid
+    return get_user_organization_uuid(request.user)
 
 
 class LocalEngineViewSet(viewsets.ModelViewSet):
@@ -47,9 +64,8 @@ class LocalEngineViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Return engines for authenticated user's organization."""
-        user = self.request.user
-        org_uuid = getattr(user, 'organization_uuid', None)
+        """Return engines for the authenticated principal's organization."""
+        org_uuid = get_request_org_uuid(self.request)
         if org_uuid:
             return LocalEngineInstallation.objects.filter(organization_uuid=org_uuid)
         return LocalEngineInstallation.objects.none()
@@ -78,7 +94,7 @@ class LocalEngineViewSet(viewsets.ModelViewSet):
         """
         engine_name = request.data.get('engine_name')
         platform = request.data.get('platform')
-        org_uuid = request.user.organization_uuid
+        org_uuid = get_request_org_uuid(request)
 
         try:
             engine, reg_key = LocalEngineService.register_engine(
@@ -100,10 +116,18 @@ class LocalEngineViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-    @action(detail=True, methods=['post'])
+    @action(
+        detail=True,
+        methods=['post'],
+        authentication_classes=[EngineAuthentication],
+        permission_classes=[IsAuthenticated],
+    )
     def heartbeat(self, request, pk=None):
         """
         Record a heartbeat from the local engine.
+
+        Authenticated as the engine itself (Authorization: Engine <uuid>:<key>),
+        not a browser user. An engine may only heartbeat as itself.
 
         This confirms the engine is online and ready for jobs.
 
@@ -121,7 +145,12 @@ class LocalEngineViewSet(viewsets.ModelViewSet):
             "jobs_queued": [...]
         }
         """
-        engine = self.get_object()
+        engine = request.user
+        if str(engine.pk) != str(pk):
+            return Response(
+                {'error': 'An engine may only heartbeat as itself.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # Record heartbeat
         LocalEngineService.heartbeat(engine.id)
@@ -241,9 +270,14 @@ class LocalProcessingJobViewSet(viewsets.ModelViewSet):
     serializer_class = LocalProcessingJobSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_authenticators(self):
+        """Accept both browser-user sessions/tokens and engine credentials."""
+        from rest_framework.authentication import SessionAuthentication, TokenAuthentication
+        return [SessionAuthentication(), TokenAuthentication(), EngineAuthentication()]
+
     def get_queryset(self):
-        """Return jobs for authenticated user's organization."""
-        org_uuid = self.request.user.organization_uuid
+        """Return jobs for the authenticated principal's organization."""
+        org_uuid = get_request_org_uuid(self.request)
         return LocalProcessingJob.objects.filter(
             editor_project__organization_uuid=org_uuid
         )
@@ -290,6 +324,7 @@ class LocalProcessingJobViewSet(viewsets.ModelViewSet):
                 )
 
             job = LocalProcessingJob.objects.create(
+                organization_uuid=project.organization_uuid,
                 local_engine=local_engine,
                 editor_project=project,
                 job_type=job_type,
@@ -323,11 +358,19 @@ class LocalProcessingJobViewSet(viewsets.ModelViewSet):
         """
         job = self.get_object()
 
-        # Simplified: any authenticated user can update
-        # In production: verify engine ownership via session token
+        if isinstance(request.user, LocalEngineInstallation) and job.local_engine_id != request.user.pk:
+            return Response(
+                {'error': 'An engine may only update jobs assigned to itself.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = self.get_serializer(job, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save(updated_by=request.user)
+        # updated_by is a FK to the human User model; engines have no user row to attribute to.
+        if isinstance(request.user, LocalEngineInstallation):
+            serializer.save()
+        else:
+            serializer.save(updated_by=request.user)
 
         return Response(serializer.data)
 
@@ -373,9 +416,14 @@ class RenderPlanViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = RenderPlanSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_authenticators(self):
+        """Accept both browser-user sessions/tokens and engine credentials."""
+        from rest_framework.authentication import SessionAuthentication, TokenAuthentication
+        return [SessionAuthentication(), TokenAuthentication(), EngineAuthentication()]
+
     def get_queryset(self):
-        """Return plans for authenticated user's organization."""
-        org_uuid = self.request.user.organization_uuid
+        """Return plans for the authenticated principal's organization."""
+        org_uuid = get_request_org_uuid(self.request)
         return RenderPlan.objects.filter(
             project__organization_uuid=org_uuid
         )
@@ -423,13 +471,21 @@ class EditorProjectViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Return projects for authenticated user's organization."""
-        org_uuid = self.request.user.organization_uuid
+        """Return projects for the authenticated principal's organization."""
+        org_uuid = get_request_org_uuid(self.request)
         return EditorProject.objects.filter(organization_uuid=org_uuid)
 
     def perform_create(self, serializer):
-        """Ensure organization_uuid is set on create."""
+        """
+        Ensure organization_uuid is set on create.
+
+        Project creation is a human action from the browser (created_by is a
+        FK to the User model, which an engine has no row in) - engines never
+        create projects, only work jobs against ones a user already made.
+        """
+        if isinstance(self.request.user, LocalEngineInstallation):
+            raise PermissionDenied('Engines cannot create editor projects.')
         serializer.save(
-            organization_uuid=self.request.user.organization_uuid,
+            organization_uuid=get_request_org_uuid(self.request),
             created_by=self.request.user,
         )
