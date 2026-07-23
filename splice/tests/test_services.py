@@ -195,7 +195,8 @@ class MediaServiceTest(TestCase):
     def setUp(self):
         self.org_uuid = uuid.uuid4()
         self.show = Show.objects.create(
-            title='Test Show',
+            name='Test Show',
+            slug=f'test-show-{self.org_uuid.hex[:8]}',
             organization_uuid=self.org_uuid,
         )
         self.episode = Episode.objects.create(
@@ -342,7 +343,8 @@ class RenderPlanServiceTest(TestCase):
     def setUp(self):
         self.org_uuid = uuid.uuid4()
         self.show = Show.objects.create(
-            title='Test Show',
+            name='Test Show',
+            slug=f'test-show-{self.org_uuid.hex[:8]}',
             organization_uuid=self.org_uuid,
         )
         self.episode = Episode.objects.create(
